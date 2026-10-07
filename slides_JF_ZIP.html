@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Tutorial Builder & Presentation Player</title>
+  
+  <!-- JSZip Library for Folder/ZIP Packaging -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #1a73e8;
+      --primary-hover: #1557b0;
+      --bg-gray: #f8f9fa;
+      --border-color: #dadce0;
+      --text-dark: #202124;
+      --topbar-height: 50px;
+    }
+
+    * { box-sizing: border-box; }
+    
+    body, html {
+      margin: 0; padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: var(--bg-gray);
+      color: var(--text-dark);
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* HIDE TOP BAR IN EXPORTED MODE */
+    body.no-topbar {
+      --topbar-height: 0px;
+    }
+    body.no-topbar #topBar {
+      display: none !important;
+    }
+
+    /* TOP TOOLBAR */
+    #topBar {
+      height: var(--topbar-height);
+      background: white;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+    }
+    .brand { font-weight: bold; font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 8px;}
+    .nav-btn-group { display: flex; gap: 8px; align-items: center; }
+
+    button {
+      background-color: var(--primary);
+      color: white; border: none;
+      padding: 8px 14px; border-radius: 4px;
+      font-size: 13px; font-weight: bold;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    }
+    button:hover { background-color: var(--primary-hover); }
+    button.btn-sec { background-color: #f1f3f4; color: #3c4043; border: 1px solid var(--border-color); }
+    button.btn-sec:hover { background-color: #e8eaed; }
+    button.btn-danger { background-color: #d93025; color: white; }
+    button.btn-danger:hover { background-color: #b3261e; }
+
+    /* VIEW CONTAINERS */
+    .view-panel { 
+      display: none; 
+      height: calc(100vh - var(--topbar-height)); 
+      width: 100vw; 
+      position: relative; 
+    }
+    .view-panel.active { display: flex !important; }
+
+    /* 1. TILE GRID VIEW */
+    #gridView { flex-direction: column; padding: 20px; overflow-y: auto; }
+    .grid-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .tile-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+    }
+    .tile-card {
+      background: white; border: 2px solid var(--border-color);
+      border-radius: 8px; padding: 8px; position: relative;
+      cursor: grab; display: flex; flex-direction: column; gap: 8px;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .tile-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+    .tile-card.dragging { opacity: 0.5; }
+    .tile-img-box {
+      width: 100%; aspect-ratio: 16/9; background: #eee;
+      border-radius: 4px; overflow: hidden; position: relative;
+    }
+    .tile-img-box img { width: 100%; height: 100%; object-fit: contain; }
+    .tile-badge {
+      position: absolute; top: 6px; left: 6px;
+      background: rgba(0,0,0,0.7); color: white;
+      padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold;
+    }
+    .tile-actions { display: flex; justify-content: space-between; align-items: center; }
+
+    /* 2. EDITOR VIEW */
+    #editorView { flex-direction: row; }
+    #canvasArea {
+      flex: 1; background: #eef1f5; display: flex;
+      align-items: center; justify-content: center; position: relative;
+      overflow: hidden;
+    }
+    #imageContainer {
+      position: relative; display: inline-block;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: white;
+    }
+    #editorSlideImg { display: block; max-width: 80vw; max-height: 80vh; pointer-events: none; }
+    #pinLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair; }
+
+    /* Crosshair */
+    #crosshair {
+      position: absolute; width: 24px; height: 24px;
+      pointer-events: none; display: none; transform: translate(-50%, -50%); z-index: 50;
+    }
+    #crosshair::before, #crosshair::after { content: ""; position: absolute; background-color: #1a73e8; }
+    #crosshair::before { top: 11px; left: 0; width: 24px; height: 2px; }
+    #crosshair::after { top: 0; left: 11px; width: 2px; height: 24px; }
+
+    /* Pin Styling */
+    .pin-element {
+      position: absolute; width: 44px; height: 44px;
+      transform-origin: center center; cursor: pointer;
+      z-index: 20; transform: translate(-50%, -50%);
+      transition: filter 0.1s;
+    }
+    .pin-element:hover, .pin-element.selected {
+      filter: drop-shadow(0 0 6px #1a73e8); z-index: 30;
+    }
+    .pin-body {
+      width: 100%; height: 100%; border-radius: 50% 0 50% 50%;
+      box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+    }
+    .pin-number {
+      font-weight: bold; font-size: 20px; line-height: 1;
+      display: inline-block; transform-origin: center center;
+    }
+
+    /* Yellow Floating Tooltip */
+    .pin-tooltip {
+      position: absolute;
+      background-color: #ffffa0;
+      color: #333;
+      border: 1px solid #c0c000;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      pointer-events: none;
+      z-index: 100;
+      display: none;
+      transform: translate(-50%, -120%);
+    }
+
+    /* Editor Sidebar */
+    #editorSidebar {
+      width: 320px; background: white; border-left: 1px solid var(--border-color);
+      padding: 16px; display: flex; flex-direction: column; gap: 14px;
+      overflow-y: auto;
+    }
+    .panel-card {
+      background: white; border: 1px solid var(--border-color);
+      border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .panel-title { font-weight: bold; font-size: 13px; color: var(--text-dark); }
+    .control-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .control-row label { font-size: 12px; font-weight: bold; color: #5f6368; }
+    input[type="color"] {
+      border: 1px solid var(--border-color); border-radius: 4px;
+      width: 32px; height: 32px; cursor: pointer; padding: 0; background: none;
+    }
+    input[type="number"], textarea {
+      width: 100%; border: 1px solid var(--border-color); border-radius: 4px;
+      padding: 6px; font-size: 13px; font-family: inherit;
+    }
+    textarea { resize: vertical; min-height: 60px; }
+    .shortcuts-info { font-size: 11px; color: #5f6368; line-height: 1.4; }
+    .shortcuts-info ul { padding-left: 16px; margin: 4px 0; }
+
+    /* 3. PRESENTATION MODE */
+    #presentView {
+      background: #000; flex-direction: column; align-items: center;
+      justify-content: center; position: relative;
+    }
+    #presentSlideBox { position: relative; display: inline-block; max-width: 95vw; max-height: 90vh; }
+    #presentSlideImg { display: block; max-width: 95vw; max-height: 90vh; object-fit: contain; }
+    .present-controls {
+      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 20px;
+      display: flex; gap: 16px; color: white; align-items: center; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP TOOLBAR -->
+  <div id="topBar">
+    <div class="brand">📌 Step Marker Tutorial Builder</div>
+    <div class="nav-btn-group">
+      <button id="btnTileView" class="btn-sec" onclick="switchView('grid')">🖼️ Grid View</button>
+      <button id="btnPresent" onclick="switchView('present')">▶ Presentation Mode</button>
+      <button id="btnExport" class="btn-sec" onclick="exportPresentationPackage()">💾 Export Presentation Folder (.zip)</button>
+      <button id="btnLoadHtml" class="btn-sec" onclick="document.getElementById('fileLoadHtml').click()">📂 Load Saved HTML</button>
+      <input type="file" id="fileLoadHtml" accept=".html" style="display:none" onchange="loadPresentationHTML(event)">
+    </div>
+  </div>
+
+  <!-- 1. TILE GRID VIEW -->
+  <div id="gridView" class="view-panel active">
+    <div class="grid-header">
+      <h2>Tutorial Slides</h2>
+      <div>
+        <button onclick="document.getElementById('fileImageInput').click()">➕ Add Images</button>
+        <input type="file" id="fileImageInput" multiple accept="image/*" style="display:none" onchange="handleImageUpload(event)">
+      </div>
+    </div>
+    <div id="tileGrid" class="tile-grid"></div>
+  </div>
+
+  <!-- 2. EDITOR VIEW -->
+  <div id="editorView" class="view-panel">
+    <div id="canvasArea">
+      <div id="imageContainer">
+        <img id="editorSlideImg" src="" alt="Slide">
+        <div id="crosshair"></div>
+        <div id="pinLayer"></div>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div id="editorSidebar">
+      <div class="panel-card">
+        <div class="panel-title" id="modeTitle">New Pin Mode</div>
+        <div class="control-row">
+          <label for="inputNum">Step Number:</label>
+          <input type="number" id="inputNum" value="1" min="1" style="width: 70px;" onchange="updateActivePin()">
+        </div>
+        <div class="control-row">
+          <label for="inputAngle">Rotation (°):</label>
+          <input type="number" id="inputAngle" value="0" step="15" style="width: 70px;" onchange="updateActivePin()">
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-title">Pin Colors</div>
+        <div class="control-row">
+          <label for="inputFillColor">Fill Color:</label>
+          <input type="color" id="inputFillColor" value="#FFFF00" onchange="updateActivePin()">
+        </div>
+        <div class="control-row">
+          <label for="inputBorderColor">Border & Text:</label>
+          <input type="color" id="inputBorderColor" value="#FF0000" onchange="updateActivePin()">
+        </div>
+      </div>
+
+      <div class="panel-card">
+        <div class="panel-title">Embedded Tooltip Text</div>
+        <textarea id="inputTooltip" placeholder="Enter notes/text to display on hover in presentation mode..." oninput="updateActivePin()"></textarea>
+      </div>
+
+      <div class="panel-card">
+        <div class="control-row">
+          <button class="btn-sec" onclick="rotateActivePin(-45)">↺ -45°</button>
+          <button class="btn-sec" onclick="rotateActivePin(45)">↻ +45°</button>
+          <button class="btn-sec" onclick="resetRotation()">0° Reset</button>
+        </div>
+      </div>
+
+      <div id="editActions" class="panel-card" style="display:none;">
+        <button class="btn-danger" onclick="deleteSelectedPin()">🗑️ Delete Selected Pin</button>
+        <button class="btn-sec" onclick="deselectPin()">Cancel Selection</button>
+      </div>
+
+      <div class="panel-card shortcuts-info">
+        <b>Mouse & Keyboard Shortcuts:</b>
+        <ul>
+          <li><b>Click Canvas</b>: Place / Move pin</li>
+          <li><b>Click Pin</b>: Select pin for editing</li>
+          <li><b>Mouse Wheel</b>: Adjust step number up/down</li>
+          <li><b>r / R</b>: Rotate 45° Clockwise</li>
+          <li><b>Alt + r</b>: Fine rotate 15° CW</li>
+          <li><b>Shift + r</b>: Rotate 45° CCW</li>
+          <li><b>Shift + Alt + r</b>: Fine rotate 15° CCW</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. PRESENTATION MODE VIEW -->
+  <div id="presentView" class="view-panel">
+    <div id="presentSlideBox">
+      <img id="presentSlideImg" src="" alt="Presentation Slide">
+      <div id="presentPinLayer" style="position:absolute; top:0; left:0; width:100%; height:100%;"></div>
+      <div id="hoverTooltip" class="pin-tooltip"></div>
+    </div>
+    <div class="present-controls">
+      <button class="btn-sec" onclick="prevSlide()">◀ Prev</button>
+      <span id="slideCounter">Slide 1 / 1</span>
+      <button class="btn-sec" onclick="nextSlide()">Next ▶</button>
+      <button class="btn-sec" onclick="exitPresentation()">Exit Presentation</button>
+    </div>
+  </div>
+
+  <!-- EMBEDDED DATA STORAGE FOR EXPORTED PRESENTATIONS -->
+  <script id="presentationData" type="application/json">{"slides":[]}</script>
+
+  <script>
+    // GLOBAL STATE
+    let state = {
+      slides: [], 
+      currentSlideIdx: 0,
+      selectedPinId: null, 
+      currentRotation: 0,
+      nextStepNum: 1
+    };
+    let isUnlocked = true; // Controls full editor access
+
+    // INITIALIZATION
+    window.addEventListener('DOMContentLoaded', () => {
+      const dataElem = document.getElementById('presentationData');
+      if (dataElem && dataElem.textContent.trim()) {
+        try {
+          const loaded = JSON.parse(dataElem.textContent);
+          if (loaded.slides && loaded.slides.length > 0) {
+            state.slides = loaded.slides;
+            
+            // If opening an exported presentation, hide topbar
+            if (loaded.isExported) {
+              isUnlocked = false;
+              document.body.classList.add('no-topbar');
+            }
+            
+            renderTileGrid();
+            switchView('present'); 
+            return;
+          }
+        } catch(e) {}
+      }
+      renderTileGrid();
+    });
+
+    // SECRET UNLOCK (Shift + M)
+    function unlockEditorMode() {
+      isUnlocked = true;
+      document.body.classList.remove('no-topbar');
+      alert("Editor Mode Unlocked!");
+    }
+
+    // EXIT PRESENTATION LOGIC
+    function exitPresentation() {
+      if (!isUnlocked) {
+        window.close(); // Close tab if exported/locked
+      } else {
+        switchView('grid'); // Return to builder grid if unlocked
+      }
+    }
+
+    // VIEW SWITCHING
+    function switchView(viewName) {
+      document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+      deselectPin();
+
+      if (viewName === 'grid') {
+        document.getElementById('gridView').classList.add('active');
+        renderTileGrid();
+      } else if (viewName === 'editor') {
+        document.getElementById('editorView').classList.add('active');
+        setupEditorSlide();
+      } else if (viewName === 'present') {
+        if (state.slides.length === 0) {
+          alert('Please upload images first!');
+          switchView('grid');
+          return;
+        }
+        document.getElementById('presentView').classList.add('active');
+        setupPresentSlide();
+      }
+    }
+
+    // IMAGE UPLOAD & TILE GRID
+    function handleImageUpload(e) {
+      const files = Array.from(e.target.files);
+      let loadedCount = 0;
+
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          state.slides.push({
+            id: 'slide_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            dataUrl: evt.target.result,
+            pins: []
+          });
+          loadedCount++;
+          if (loadedCount === files.length) {
+            renderTileGrid();
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+      e.target.value = '';
+    }
+
+    function renderTileGrid() {
+      const grid = document.getElementById('tileGrid');
+      grid.innerHTML = '';
+
+      if (state.slides.length === 0) {
+        grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: #777; margin-top: 40px;">
+          No slides uploaded yet. Click "Add Images" above to begin.</div>`;
+        return;
+      }
+
+      state.slides.forEach((slide, idx) => {
+        const card = document.createElement('div');
+        card.className = 'tile-card';
+        card.draggable = true;
+        card.dataset.index = idx;
+
+        card.innerHTML = `
+          <div class="tile-img-box" onclick="openEditorForSlide(${idx})" style="cursor: pointer;" title="Click to open slide editor">
+            <span class="tile-badge">Step ${idx + 1}</span>
+            <img src="${slide.dataUrl}">
+          </div>
+          <div class="tile-actions">
+            <span style="font-size: 12px; font-weight: bold; color: #5f6368;">${slide.pins.length} Pins</span>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn-sec" onclick="openEditorForSlide(${idx})" title="Edit pins on this slide">✏️ Edit</button>
+              <button class="btn-sec" onclick="moveSlide(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>◄</button>
+              <button class="btn-sec" onclick="moveSlide(${idx}, 1)" ${idx === state.slides.length - 1 ? 'disabled' : ''}>►</button>
+              <button class="btn-danger" onclick="deleteSlide(${idx})">🗑️</button>
+            </div>
+          </div>
+        `;
+
+        // Drag & Drop Reordering
+        card.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', idx);
+          card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
+        card.addEventListener('dragover', (e) => e.preventDefault());
+        card.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+          const toIdx = idx;
+          if (fromIdx !== toIdx) {
+            const movedItem = state.slides.splice(fromIdx, 1)[0];
+            state.slides.splice(toIdx, 0, movedItem);
+            renderTileGrid();
+          }
+        });
+
+        grid.appendChild(card);
+      });
+    }
+
+    function moveSlide(idx, dir) {
+      const newIdx = idx + dir;
+      if (newIdx >= 0 && newIdx < state.slides.length) {
+        const temp = state.slides[idx];
+        state.slides[idx] = state.slides[newIdx];
+        state.slides[newIdx] = temp;
+        renderTileGrid();
+      }
+    }
+
+    function deleteSlide(idx) {
+      if (confirm('Delete this slide and its pins?')) {
+        state.slides.splice(idx, 1);
+        renderTileGrid();
+      }
+    }
+
+    function openEditorForSlide(idx) {
+      state.currentSlideIdx = idx;
+      switchView('editor');
+    }
+
+    // EDITOR ENGINE
+    function setupEditorSlide() {
+      const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
+
+      const editorImg = document.getElementById('editorSlideImg');
+      editorImg.src = slide.dataUrl;
+      calculateNextNumber();
+      renderEditorPins();
+    }
+
+    function calculateNextNumber() {
+      const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
+      let maxNum = 0;
+      slide.pins.forEach(p => {
+        if (p.num > maxNum) maxNum = p.num;
+      });
+      state.nextStepNum = maxNum + 1;
+      if (!state.selectedPinId) {
+        document.getElementById('inputNum').value = state.nextStepNum;
+      }
+    }
+
+    function renderEditorPins() {
+      const pinLayer = document.getElementById('pinLayer');
+      pinLayer.innerHTML = '';
+      const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
+
+      slide.pins.forEach(pin => {
+        const elem = createPinElement(pin, true);
+        if (pin.id === state.selectedPinId) {
+          elem.classList.add('selected');
+        }
+        pinLayer.appendChild(elem);
+      });
+    }
+
+    function createPinElement(pin, isEditor = false) {
+      const div = document.createElement('div');
+      div.className = 'pin-element';
+      div.style.left = `${pin.xPct}%`;
+      div.style.top = `${pin.yPct}%`;
+
+      const normalizedAngle = ((pin.rotation % 360) + 360) % 360;
+
+      div.innerHTML = `
+        <div class="pin-body" style="background-color: ${pin.fillColor}; border: 3px solid ${pin.borderColor}; transform: rotate(${normalizedAngle}deg);">
+          <span class="pin-number" style="color: ${pin.borderColor}; transform: rotate(${-normalizedAngle}deg);">${pin.num}</span>
+        </div>
+      `;
+
+      if (isEditor) {
+        div.onclick = (e) => {
+          e.stopPropagation();
+          selectPin(pin.id);
+        };
+      } else {
+        div.onmouseenter = () => {
+          if (pin.tooltip && pin.tooltip.trim()) {
+            const tooltip = document.getElementById('hoverTooltip');
+            tooltip.textContent = pin.tooltip;
+            tooltip.style.left = `${pin.xPct}%`;
+            tooltip.style.top = `${pin.yPct}%`;
+            tooltip.style.display = 'block';
+          }
+        };
+        div.onmouseleave = () => {
+          document.getElementById('hoverTooltip').style.display = 'none';
+        };
+      }
+
+      return div;
+    }
+
+    // CROSSHAIR & PIN PLACEMENT/EDITING
+    const pinLayer = document.getElementById('pinLayer');
+    const crosshair = document.getElementById('crosshair');
+
+    pinLayer.addEventListener('mousemove', (e) => {
+      const rect = pinLayer.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      crosshair.style.left = `${x}px`;
+      crosshair.style.top = `${y}px`;
+      crosshair.style.display = 'block';
+    });
+
+    pinLayer.addEventListener('mouseleave', () => {
+      crosshair.style.display = 'none';
+    });
+
+    pinLayer.addEventListener('click', (e) => {
+      const rect = pinLayer.getBoundingClientRect();
+      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+      const slide = state.slides[state.currentSlideIdx];
+
+      if (state.selectedPinId) {
+        const pin = slide.pins.find(p => p.id === state.selectedPinId);
+        if (pin) {
+          pin.xPct = xPct;
+          pin.yPct = yPct;
+          renderEditorPins();
+        }
+      } else {
+        const newPin = {
+          id: 'pin_' + Date.now(),
+          num: parseInt(document.getElementById('inputNum').value, 10) || state.nextStepNum,
+          xPct: xPct,
+          yPct: yPct,
+          rotation: state.currentRotation,
+          fillColor: document.getElementById('inputFillColor').value,
+          borderColor: document.getElementById('inputBorderColor').value,
+          tooltip: document.getElementById('inputTooltip').value
+        };
+
+        slide.pins.push(newPin);
+        calculateNextNumber();
+        renderEditorPins();
+      }
+    });
+
+    function selectPin(pinId) {
+      state.selectedPinId = pinId;
+      const slide = state.slides[state.currentSlideIdx];
+      const pin = slide.pins.find(p => p.id === pinId);
+      if (!pin) return;
+
+      document.getElementById('modeTitle').textContent = `Editing Pin #${pin.num}`;
+      document.getElementById('inputNum').value = pin.num;
+      document.getElementById('inputAngle').value = pin.rotation;
+      document.getElementById('inputFillColor').value = pin.fillColor;
+      document.getElementById('inputBorderColor').value = pin.borderColor;
+      document.getElementById('inputTooltip').value = pin.tooltip || '';
+      document.getElementById('editActions').style.display = 'flex';
+
+      state.currentRotation = pin.rotation;
+      renderEditorPins();
+    }
+
+    function deselectPin() {
+      state.selectedPinId = null;
+      document.getElementById('modeTitle').textContent = 'New Pin Mode';
+      document.getElementById('editActions').style.display = 'none';
+      calculateNextNumber();
+      renderEditorPins();
+    }
+
+    function updateActivePin() {
+      if (state.selectedPinId) {
+        const slide = state.slides[state.currentSlideIdx];
+        const pin = slide.pins.find(p => p.id === state.selectedPinId);
+        if (pin) {
+          pin.num = parseInt(document.getElementById('inputNum').value, 10) || pin.num;
+          pin.rotation = parseInt(document.getElementById('inputAngle').value, 10) || 0;
+          pin.fillColor = document.getElementById('inputFillColor').value;
+          pin.borderColor = document.getElementById('inputBorderColor').value;
+          pin.tooltip = document.getElementById('inputTooltip').value;
+          renderEditorPins();
+        }
+      } else {
+        state.currentRotation = parseInt(document.getElementById('inputAngle').value, 10) || 0;
+      }
+    }
+
+    function rotateActivePin(deg) {
+      if (state.selectedPinId) {
+        const slide = state.slides[state.currentSlideIdx];
+        const pin = slide.pins.find(p => p.id === state.selectedPinId);
+        if (pin) {
+          pin.rotation = ((pin.rotation + deg) % 360 + 360) % 360;
+          document.getElementById('inputAngle').value = pin.rotation;
+          renderEditorPins();
+        }
+      } else {
+        state.currentRotation = ((state.currentRotation + deg) % 360 + 360) % 360;
+        document.getElementById('inputAngle').value = state.currentRotation;
+      }
+    }
+
+    function resetRotation() {
+      if (state.selectedPinId) {
+        const slide = state.slides[state.currentSlideIdx];
+        const pin = slide.pins.find(p => p.id === state.selectedPinId);
+        if (pin) {
+          pin.rotation = 0;
+          document.getElementById('inputAngle').value = 0;
+          renderEditorPins();
+        }
+      } else {
+        state.currentRotation = 0;
+        document.getElementById('inputAngle').value = 0;
+      }
+    }
+
+    function deleteSelectedPin() {
+      if (!state.selectedPinId) return;
+      const slide = state.slides[state.currentSlideIdx];
+      slide.pins = slide.pins.filter(p => p.id !== state.selectedPinId);
+      deselectPin();
+    }
+
+    // MOUSE WHEEL CONTROL
+    window.addEventListener('wheel', (e) => {
+      const editorViewActive = document.getElementById('editorView').classList.contains('active');
+      const presentViewActive = document.getElementById('presentView').classList.contains('active');
+
+      if (editorViewActive) {
+        e.preventDefault();
+        const numInput = document.getElementById('inputNum');
+        let val = parseInt(numInput.value, 10) || 1;
+        if (e.deltaY < 0) val++;
+        else if (e.deltaY > 0 && val > 1) val--;
+
+        numInput.value = val;
+        updateActivePin();
+      } else if (presentViewActive) {
+        e.preventDefault();
+        if (e.deltaY > 0) nextSlide();
+        else if (e.deltaY < 0) prevSlide();
+      }
+    }, { passive: false });
+
+    // KEYBOARD SHORTCUTS & SECRET UNLOCK KEY
+    window.addEventListener('keydown', (e) => {
+      // Ignore text input when focused on input/textarea
+      const activeTag = document.activeElement ? document.activeElement.tagName.toUpperCase() : '';
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+        return;
+      }
+
+      // Secret Key Combo: Shift + M to unlock Editor Mode
+      if (e.shiftKey && (e.code === 'KeyM' || e.key === 'M' || e.key === 'm')) {
+        e.preventDefault();
+        unlockEditorMode();
+        return;
+      }
+
+      const editorViewActive = document.getElementById('editorView').classList.contains('active');
+      const presentViewActive = document.getElementById('presentView').classList.contains('active');
+
+      if (editorViewActive) {
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          if (e.shiftKey && e.altKey) rotateActivePin(-15);
+          else if (e.shiftKey) rotateActivePin(-45);
+          else if (e.altKey) rotateActivePin(15);
+          else rotateActivePin(45);
+        }
+      } else if (presentViewActive) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+          nextSlide();
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+          prevSlide();
+        }
+      }
+    });
+
+    // PRESENTATION MODE PLAYER
+    function setupPresentSlide() {
+      const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
+
+      document.getElementById('presentSlideImg').src = slide.dataUrl;
+      document.getElementById('slideCounter').textContent = `Slide ${state.currentSlideIdx + 1} / ${state.slides.length}`;
+
+      const layer = document.getElementById('presentPinLayer');
+      layer.innerHTML = '';
+      slide.pins.forEach(pin => {
+        layer.appendChild(createPinElement(pin, false));
+      });
+    }
+
+    function nextSlide() {
+      if (state.currentSlideIdx < state.slides.length - 1) {
+        state.currentSlideIdx++;
+        setupPresentSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (state.currentSlideIdx > 0) {
+        state.currentSlideIdx--;
+        setupPresentSlide();
+      }
+    }
+
+    document.getElementById('presentSlideBox').addEventListener('click', (e) => {
+      if (e.target.closest('.pin-element')) return;
+      nextSlide();
+    });
+
+    // EXPORT PRESENTATION PACKAGE (.ZIP WITH HTML AND IMAGES SUBFOLDER)
+    async function exportPresentationPackage() {
+      if (state.slides.length === 0) {
+        alert('No slides to export!');
+        return;
+      }
+
+      if (typeof JSZip === 'undefined') {
+        alert('JSZip library is not loaded. Please check your internet connection.');
+        return;
+      }
+
+      const zip = new JSZip();
+      const imgFolder = zip.folder("images");
+
+      // Deep clone slides state to alter dataUrls to relative paths for export
+      const exportedSlides = JSON.parse(JSON.stringify(state.slides));
+
+      exportedSlides.forEach((slide, idx) => {
+        let dataUrl = slide.dataUrl;
+        
+        // Extract base64 image data if present
+        if (dataUrl.startsWith('data:image/')) {
+          const mimeMatch = dataUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,/);
+          const ext = mimeMatch ? mimeMatch[1] : 'png';
+          const base64Data = dataUrl.replace(/^data:image\/[a-zA-Z0-9]+;base64,/, '');
+          
+          const fileName = `slide_${idx + 1}.${ext}`;
+          const relativePath = `images/${fileName}`;
+
+          // Add image file inside the images/ subfolder in zip
+          imgFolder.file(fileName, base64Data, { base64: true });
+
+          // Update slide reference in exported JSON to relative path
+          slide.dataUrl = relativePath;
+        }
+      });
+
+      // Insert exported data payload into exported HTML
+      const currentHtml = document.documentElement.outerHTML;
+      const dataJson = JSON.stringify({ slides: exportedSlides, isExported: true });
+
+      const updatedHtml = currentHtml.replace(
+        /<script id="presentationData" type="application\/json">[\s\S]*?<\/script>/,
+        `<script id="presentationData" type="application/json">${dataJson}<\/script>`
+      );
+
+      // Add index.html to zip root
+      zip.file("index.html", updatedHtml);
+
+      // Generate and download ZIP file
+      const content = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `tutorial_package_${Date.now()}.zip`;
+      a.click();
+    }
+
+    function loadPresentationHTML(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const content = evt.target.result;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(content, 'text/html');
+        const dataElem = doc.getElementById('presentationData');
+
+        if (dataElem && dataElem.textContent.trim()) {
+          try {
+            const loaded = JSON.parse(dataElem.textContent);
+            if (loaded.slides) {
+              state.slides = loaded.slides;
+              state.currentSlideIdx = 0;
+              renderTileGrid();
+              switchView('grid');
+              alert('Presentation loaded successfully!');
+            }
+          } catch(err) {
+            alert('Could not parse presentation data from HTML.');
+          }
+        } else {
+          alert('No presentation data found in selected HTML file.');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    }
+  </script>
+</body>
+</html>
