@@ -5,8 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SCORM Interactive Tutorial & Quiz Builder</title>
 
-  <!-- JSZip Library for SCORM Package (.zip) Generation -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!--
+    SCORM Step Marker & Quiz Builder
+    Copyright (c) 2026 Joan Felip
+    Released under the MIT License (see LICENSE). Includes JSZip (MIT or GPLv3, see vendor/JSZIP-LICENSE.markdown).
+  -->
+
+  <!-- JSZip (builds the SCORM .zip). Bundled in vendor/ so the tool works offline; the CDN is only a fallback. -->
+  <script src="vendor/jszip.min.js"></script>
+  <script id="jszipFallback">window.JSZip || document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>');</script>
 
   <style>
     :root {
@@ -2260,7 +2267,7 @@
       const body = clone.querySelector('body'); if (body) body.classList.remove('no-topbar');
       const tip = clone.querySelector('#hoverTooltip'); if (tip) tip.style.display = 'none';
       // A SCORM package only plays the slides: it doesn't need the zip library (no external request from the LMS)
-      if (isExported) clone.querySelectorAll('script[src*="jszip"]').forEach(el => el.remove());
+      if (isExported) clone.querySelectorAll('script[src*="jszip"], script#jszipFallback').forEach(el => el.remove());
 
       // "<" escaped so that tooltips / questions can never close the <script> tag
       const dataJson = JSON.stringify({ slides: slides, isExported: !!isExported }).replace(/</g, '\\u003c');
@@ -2295,7 +2302,7 @@
     async function exportPresentationPackage() {
       if (state.slides.length === 0) { alert('Nothing to export yet — add some images first.'); return; }
       if (typeof JSZip === 'undefined') {
-        alert('The JSZip library could not be loaded (check your internet connection) and the package cannot be created.');
+        alert('The JSZip library could not be loaded (vendor/jszip.min.js is missing and the CDN is unreachable), so the package cannot be created.');
         return;
       }
 
