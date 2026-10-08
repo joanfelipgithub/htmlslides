@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interactive Tutorial Builder & Presentation Player</title>
-  
-  <!-- JSZip Library for Folder/ZIP Packaging -->
+  <title>SCORM Interactive Tutorial & Quiz Builder</title>
+
+  <!-- JSZip Library for SCORM Package (.zip) Generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <style>
@@ -19,7 +19,7 @@
     }
 
     * { box-sizing: border-box; }
-    
+
     body, html {
       margin: 0; padding: 0;
       font-family: Arial, sans-serif;
@@ -29,14 +29,12 @@
       overflow: hidden;
       user-select: none;
     }
+    /* Allow text selection / typing in form fields and editable cells */
+    input, textarea, select, [contenteditable="true"], .excel-table { user-select: text; }
 
-    /* HIDE TOP BAR IN EXPORTED MODE */
-    body.no-topbar {
-      --topbar-height: 0px;
-    }
-    body.no-topbar #topBar {
-      display: none !important;
-    }
+    /* HIDE TOP BAR IN EXPORTED SCORM PLAYER MODE */
+    body.no-topbar { --topbar-height: 0px; }
+    body.no-topbar #topBar { display: none !important; }
 
     /* TOP TOOLBAR */
     #topBar {
@@ -49,8 +47,8 @@
       padding: 0 16px;
       z-index: 100;
     }
-    .brand { font-weight: bold; font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 8px;}
-    .nav-btn-group { display: flex; gap: 8px; align-items: center; }
+    .brand { font-weight: bold; font-size: 16px; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+    .nav-btn-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
     button {
       background-color: var(--primary);
@@ -59,18 +57,19 @@
       font-size: 13px; font-weight: bold;
       cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
     }
-    button:hover { background-color: var(--primary-hover); }
+    button:hover:not(:disabled) { background-color: var(--primary-hover); }
+    button:disabled { opacity: 0.55; cursor: not-allowed !important; }
     button.btn-sec { background-color: #f1f3f4; color: #3c4043; border: 1px solid var(--border-color); }
-    button.btn-sec:hover { background-color: #e8eaed; }
+    button.btn-sec:hover:not(:disabled) { background-color: #e8eaed; }
     button.btn-danger { background-color: #d93025; color: white; }
-    button.btn-danger:hover { background-color: #b3261e; }
+    button.btn-danger:hover:not(:disabled) { background-color: #b3261e; }
 
-    /* VIEW CONTAINERS */
-    .view-panel { 
-      display: none; 
-      height: calc(100vh - var(--topbar-height)); 
-      width: 100vw; 
-      position: relative; 
+    /* VIEW PANELS */
+    .view-panel {
+      display: none;
+      height: calc(100vh - var(--topbar-height));
+      width: 100vw;
+      position: relative;
     }
     .view-panel.active { display: flex !important; }
 
@@ -97,7 +96,7 @@
     .tile-img-box img { width: 100%; height: 100%; object-fit: contain; }
     .tile-badge {
       position: absolute; top: 6px; left: 6px;
-      background: rgba(0,0,0,0.7); color: white;
+      background: rgba(0,0,0,0.75); color: white;
       padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold;
     }
     .tile-actions { display: flex; justify-content: space-between; align-items: center; }
@@ -113,10 +112,10 @@
       position: relative; display: inline-block;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15); background: white;
     }
-    #editorSlideImg { display: block; max-width: 80vw; max-height: 80vh; pointer-events: none; }
+    #editorSlideImg { display: block; max-width: 75vw; max-height: 80vh; pointer-events: none; }
     #pinLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair; }
 
-    /* Crosshair */
+    /* Crosshair Indicator */
     #crosshair {
       position: absolute; width: 24px; height: 24px;
       pointer-events: none; display: none; transform: translate(-50%, -50%); z-index: 50;
@@ -125,13 +124,14 @@
     #crosshair::before { top: 11px; left: 0; width: 24px; height: 2px; }
     #crosshair::after { top: 0; left: 11px; width: 2px; height: 24px; }
 
-    /* Pin Styling */
+    /* Step Pin Marker */
     .pin-element {
       position: absolute; width: 44px; height: 44px;
-      transform-origin: center center; cursor: pointer;
+      transform-origin: center center; cursor: grab;
       z-index: 20; transform: translate(-50%, -50%);
       transition: filter 0.1s;
     }
+    .pin-element:active { cursor: grabbing; }
     .pin-element:hover, .pin-element.selected {
       filter: drop-shadow(0 0 6px #1a73e8); z-index: 30;
     }
@@ -144,7 +144,7 @@
       display: inline-block; transform-origin: center center;
     }
 
-    /* Yellow Floating Tooltip */
+    /* Hover Tooltip */
     .pin-tooltip {
       position: absolute;
       background-color: #ffffa0;
@@ -164,40 +164,213 @@
 
     /* Editor Sidebar */
     #editorSidebar {
-      width: 320px; background: white; border-left: 1px solid var(--border-color);
-      padding: 16px; display: flex; flex-direction: column; gap: 14px;
+      width: 440px; background: white; border-left: 1px solid var(--border-color);
+      padding: 16px; display: flex; flex-direction: column; gap: 12px;
       overflow-y: auto;
     }
     .panel-card {
       background: white; border: 1px solid var(--border-color);
       border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px;
     }
-    .panel-title { font-weight: bold; font-size: 13px; color: var(--text-dark); }
+    .panel-title { font-weight: bold; font-size: 13px; color: var(--text-dark); display: flex; justify-content: space-between; align-items: center; }
     .control-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
     .control-row label { font-size: 12px; font-weight: bold; color: #5f6368; }
     input[type="color"] {
       border: 1px solid var(--border-color); border-radius: 4px;
-      width: 32px; height: 32px; cursor: pointer; padding: 0; background: none;
+      width: 28px; height: 28px; cursor: pointer; padding: 0; background: none; flex-shrink: 0;
     }
-    input[type="number"], textarea {
+    input[type="number"], input[type="text"], select, textarea {
       width: 100%; border: 1px solid var(--border-color); border-radius: 4px;
-      padding: 6px; font-size: 13px; font-family: inherit;
+      padding: 6px; font-size: 12px; font-family: inherit;
     }
-    textarea { resize: vertical; min-height: 60px; }
-    .shortcuts-info { font-size: 11px; color: #5f6368; line-height: 1.4; }
-    .shortcuts-info ul { padding-left: 16px; margin: 4px 0; }
+    input:disabled { background: #f1f3f4; }
 
-    /* 3. PRESENTATION MODE */
+    /* SPREADSHEET DATA MANAGER TABLE */
+    .excel-table-wrapper {
+      max-height: 240px;
+      overflow-x: auto;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: #fff;
+      outline: none;
+    }
+    .excel-table-wrapper:focus { box-shadow: 0 0 0 2px #c6dafc; }
+    .excel-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      font-family: Arial, sans-serif;
+      text-align: left;
+    }
+    .excel-table th {
+      background: #f1f3f4;
+      border: 1px solid var(--border-color);
+      padding: 6px;
+      font-weight: bold;
+      text-align: center;
+      position: sticky; top: 0;
+      z-index: 5;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .excel-table td {
+      border: 1px solid var(--border-color);
+      padding: 4px 6px;
+      white-space: nowrap;
+      outline: none;
+      min-width: 45px;
+    }
+    .excel-table td[contenteditable="true"]:focus {
+      background-color: #e8f0fe !important;
+      box-shadow: inset 0 0 0 2px #1a73e8;
+    }
+    .excel-table tr.selected-row td { background-color: #f1f8ff; }
+    /* Spreadsheet-style selected cell (arrow-key navigation) */
+    .excel-table td.cell-selected {
+      outline: 2px solid #1a73e8;
+      outline-offset: -2px;
+      background-color: #e8f0fe !important;
+    }
+    .excel-table-wrapper:not(:focus-within) td.cell-selected { outline-color: #9aa0a6; }
+    .excel-table td[contenteditable="true"] { cursor: text; }
+
+    /* MODAL OVERLAYS */
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    #pasteModal { z-index: 1100; }
+    .modal-box {
+      background: white; width: 90vw; height: 85vh; border-radius: 8px;
+      display: flex; flex-direction: column; padding: 16px; gap: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .modal-box .excel-table-wrapper { max-height: none; flex: 1; }
+
+    /* 3. PRESENTATION & SCORM PLAYER MODE */
     #presentView {
       background: #000; flex-direction: column; align-items: center;
-      justify-content: center; position: relative;
+      justify-content: flex-start; position: relative; padding-top: 10px;
     }
-    #presentSlideBox { position: relative; display: inline-block; max-width: 95vw; max-height: 90vh; }
-    #presentSlideImg { display: block; max-width: 95vw; max-height: 90vh; object-fit: contain; }
+    #presentSlideBox { position: relative; display: inline-block; max-width: 90vw; max-height: 68vh; }
+    #presentSlideImg { display: block; max-width: 90vw; max-height: 68vh; object-fit: contain; }
+
+    /* QUIZ OVERLAY CARD IN PLAYER MODE */
+    #quizCardContainer {
+      width: 90vw;
+      max-width: 800px;
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 8px;
+      padding: 14px 20px;
+      margin-top: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 80;
+    }
+    .quiz-question-title {
+      font-weight: bold;
+      font-size: 14px;
+      color: #1a73e8;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .quiz-options-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .quiz-opt-btn {
+      background: #f8f9fa;
+      color: #3c4043;
+      border: 2px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .quiz-opt-btn:hover:not(:disabled) {
+      border-color: var(--primary);
+      background: #e8f0fe;
+    }
+    .quiz-opt-btn.correct {
+      background: #e6f4ea !important;
+      border-color: #137333 !important;
+      color: #137333 !important;
+      font-weight: bold;
+    }
+    .quiz-opt-btn.wrong {
+      background: #fce8e6 !important;
+      border-color: #c5221f !important;
+      color: #c5221f !important;
+      font-weight: bold;
+    }
+
     .present-controls {
-      position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 20px;
-      display: flex; gap: 16px; color: white; align-items: center; font-size: 13px;
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.85); padding: 6px 18px; border-radius: 20px;
+      display: flex; gap: 16px; color: white; align-items: center; font-size: 13px; z-index: 90;
+    }
+
+    /* =====================================================
+       PRINT / PDF: every slide on its own page
+    ===================================================== */
+    #printArea { display: none; }
+
+    @media print {
+      @page { size: A4 landscape; margin: 8mm; }
+
+      /* the app is locked to one screen (100vh, overflow hidden) – release it for printing */
+      html, body {
+        height: auto !important; width: auto !important;
+        overflow: visible !important; background: #fff !important;
+      }
+      body > *:not(#printArea) { display: none !important; }
+      #printArea { display: block !important; }
+      #printArea, #printArea * {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+        user-select: text;
+      }
+
+      .print-slide {
+        break-after: page; page-break-after: always;
+        break-inside: avoid; page-break-inside: avoid;
+        text-align: center;
+        font-family: Arial, sans-serif; color: #202124;
+      }
+      .print-slide:last-child { break-after: auto; page-break-after: auto; }
+
+      .print-head {
+        font-size: 10pt; font-weight: bold; color: #5f6368;
+        text-align: right; margin: 0 0 2mm;
+      }
+      .print-imgbox { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+      .print-imgbox img { display: block; max-width: 100%; max-height: 172mm; width: auto; height: auto; }
+      .print-slide.has-extra .print-imgbox img { max-height: 118mm; }
+      .print-pins { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+      .print-pins .pin-element { cursor: default; }
+
+      .print-notes, .print-quiz { text-align: left; line-height: 1.35; }
+      .print-notes { margin-top: 3mm; font-size: 10pt; }
+      .print-notes span.pn {
+        display: inline-block; min-width: 5mm; padding: 0 1.5mm; margin-right: 1.5mm;
+        border: 1.5px solid #d93025; background: #ffff99; border-radius: 3px;
+        font-weight: bold; text-align: center; color: #d93025;
+      }
+      .print-notes div { margin: 0 0 1mm; }
+      .print-quiz { margin-top: 3mm; padding: 2.5mm 4mm; border: 1px solid #1a73e8; border-radius: 3px; font-size: 10pt; }
+      .print-quiz .pq { font-weight: bold; color: #1a73e8; margin-bottom: 1.5mm; }
+      .print-quiz .po { margin: 0 0 1mm 4mm; }
     }
   </style>
 </head>
@@ -205,11 +378,13 @@
 
   <!-- TOP TOOLBAR -->
   <div id="topBar">
-    <div class="brand">📌 Step Marker Tutorial Builder</div>
+    <div class="brand">📌 Step Marker & SCORM Quiz Builder</div>
     <div class="nav-btn-group">
       <button id="btnTileView" class="btn-sec" onclick="switchView('grid')">🖼️ Grid View</button>
-      <button id="btnPresent" onclick="switchView('present')">▶ Presentation Mode</button>
-      <button id="btnExport" class="btn-sec" onclick="exportPresentationPackage()">💾 Export Presentation Folder (.zip)</button>
+      <button id="btnPresent" onclick="switchView('present')">▶ Presentation & Quiz Mode</button>
+      <button id="btnPrint" class="btn-sec" onclick="printAllSlides()" title="Print all slides, one per page (Ctrl+P) – choose 'Save as PDF' as the printer">🖨️ Print / PDF</button>
+      <button id="btnExport" class="btn-sec" onclick="exportPresentationPackage()">💾 Export SCORM Package (.zip)</button>
+      <button id="btnSaveHtml" class="btn-sec" onclick="saveProjectHTML()">📄 Save Project (.html)</button>
       <button id="btnLoadHtml" class="btn-sec" onclick="document.getElementById('fileLoadHtml').click()">📂 Load Saved HTML</button>
       <input type="file" id="fileLoadHtml" accept=".html" style="display:none" onchange="loadPresentationHTML(event)">
     </div>
@@ -218,10 +393,10 @@
   <!-- 1. TILE GRID VIEW -->
   <div id="gridView" class="view-panel active">
     <div class="grid-header">
-      <h2>Tutorial Slides</h2>
+      <h2>Tutorial Slides & Quizzes</h2>
       <div>
         <button onclick="document.getElementById('fileImageInput').click()">➕ Add Images</button>
-        <input type="file" id="fileImageInput" multiple accept="image/*" style="display:none" onchange="handleImageUpload(event)">
+        <input type="file" id="fileImageInput" multiple accept="image/*" style="display:none">
       </div>
     </div>
     <div id="tileGrid" class="tile-grid"></div>
@@ -239,6 +414,64 @@
 
     <!-- SIDEBAR -->
     <div id="editorSidebar">
+      <!-- NAVIGATION PANEL -->
+      <div class="panel-card">
+        <div class="panel-title">Slide Navigation</div>
+        <div class="control-row">
+          <button id="btnPrevEditor" class="btn-sec" onclick="prevEditorSlide()">◀ Prev</button>
+          <span id="editorSlideCounter" style="font-size: 12px; font-weight: bold; color: var(--text-dark);">Slide 1 / 1</span>
+          <button id="btnNextEditor" class="btn-sec" onclick="nextEditorSlide()">Next ▶</button>
+        </div>
+      </div>
+
+      <!-- QUIZ QUESTION EDITOR PANEL -->
+      <div class="panel-card" style="border: 2px solid #1a73e8; background: #f8fbff;">
+        <div class="panel-title" style="color: #1a73e8;">❓ Slide Quiz Question</div>
+
+        <div class="control-row">
+          <label for="quizTypeSelect">Question Type:</label>
+          <select id="quizTypeSelect" onchange="updateCurrentSlideQuizType()">
+            <option value="none">None (No Question)</option>
+            <option value="mc">Multiple Choice (A, B, C, D)</option>
+            <option value="tf">True / False</option>
+          </select>
+        </div>
+
+        <div id="quizEditorFields" style="display: none; flex-direction: column; gap: 8px; margin-top: 4px;">
+          <label for="quizText" style="font-size: 11px; font-weight: bold; color: #5f6368;">Question Text:</label>
+          <textarea id="quizText" rows="2" placeholder="e.g. Which button exports the dataset?" oninput="saveCurrentSlideQuizData()"></textarea>
+
+          <!-- MULTIPLE CHOICE OPTIONS -->
+          <div id="mcFields" style="display: none; flex-direction: column; gap: 6px;">
+            <div class="control-row"><label>A:</label><input type="text" id="optA" placeholder="Option A" oninput="saveCurrentSlideQuizData()"></div>
+            <div class="control-row"><label>B:</label><input type="text" id="optB" placeholder="Option B" oninput="saveCurrentSlideQuizData()"></div>
+            <div class="control-row"><label>C:</label><input type="text" id="optC" placeholder="Option C" oninput="saveCurrentSlideQuizData()"></div>
+            <div class="control-row"><label>D:</label><input type="text" id="optD" placeholder="Option D" oninput="saveCurrentSlideQuizData()"></div>
+            <div class="control-row" style="margin-top: 4px;">
+              <label for="correctMcSelect">Correct Option:</label>
+              <select id="correctMcSelect" onchange="saveCurrentSlideQuizData()">
+                <option value="A">Option A</option>
+                <option value="B">Option B</option>
+                <option value="C">Option C</option>
+                <option value="D">Option D</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- TRUE / FALSE OPTIONS -->
+          <div id="tfFields" style="display: none; flex-direction: column; gap: 6px;">
+            <div class="control-row">
+              <label for="correctTfSelect">Correct Answer:</label>
+              <select id="correctTfSelect" onchange="saveCurrentSlideQuizData()">
+                <option value="True">True</option>
+                <option value="False">False</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PIN MARKER CONTROLS -->
       <div class="panel-card">
         <div class="panel-title" id="modeTitle">New Pin Mode</div>
         <div class="control-row">
@@ -249,10 +482,14 @@
           <label for="inputAngle">Rotation (°):</label>
           <input type="number" id="inputAngle" value="0" step="15" style="width: 70px;" onchange="updateActivePin()">
         </div>
+        <div class="control-row">
+          <label for="inputTooltip">Tooltip:</label>
+          <input type="text" id="inputTooltip" placeholder="Select a pin to edit its tooltip" disabled oninput="updateActivePin()">
+        </div>
       </div>
 
       <div class="panel-card">
-        <div class="panel-title">Pin Colors</div>
+        <div class="panel-title">Pin Quick Colors</div>
         <div class="control-row">
           <label for="inputFillColor">Fill Color:</label>
           <input type="color" id="inputFillColor" value="#FFFF00" onchange="updateActivePin()">
@@ -263,35 +500,70 @@
         </div>
       </div>
 
-      <div class="panel-card">
-        <div class="panel-title">Embedded Tooltip Text</div>
-        <textarea id="inputTooltip" placeholder="Enter notes/text to display on hover in presentation mode..." oninput="updateActivePin()"></textarea>
+      <div id="editActions" class="panel-card" style="display:none;">
+        <button class="btn-danger" onclick="deleteSelectedPin()">🗑️ Delete Selected Pin (Del)</button>
+        <button class="btn-sec" onclick="deselectPin()">Cancel Selection (Esc)</button>
       </div>
 
-      <div class="panel-card">
-        <div class="control-row">
-          <button class="btn-sec" onclick="rotateActivePin(-45)">↺ -45°</button>
-          <button class="btn-sec" onclick="rotateActivePin(45)">↻ +45°</button>
-          <button class="btn-sec" onclick="resetRotation()">0° Reset</button>
+      <!-- SPREADSHEET TABLE PANEL -->
+      <div class="panel-card" style="flex:1;">
+        <div class="panel-title">
+          <span>📊 Spreadsheet Data Manager</span>
+          <button class="btn-sec" style="padding: 2px 6px; font-size: 11px;" onclick="openTableModal()">🔍 Expand</button>
+        </div>
+        <div class="control-row" style="margin-bottom: 2px; flex-wrap: wrap; gap: 4px; justify-content: flex-start;">
+          <button class="btn-sec" style="font-size:11px;" onclick="addNewPinViaTable()">➕ Add Pin Line</button>
+          <button class="btn-sec" style="font-size:11px;" onclick="copyPinTableToClipboard()">📋 Copy Table</button>
+          <button class="btn-sec" style="font-size:11px;" onclick="openPasteModal()">📥 Import Quiz / Pins</button>
+        </div>
+        <div style="font-size:10px; color:#777;">Click a cell · arrows move · Enter or double-click edits · Enter again confirms · Ctrl+V pastes from Excel</div>
+        <div id="sidebarTableHost" class="excel-table-wrapper" tabindex="0">
+          <!-- DYNAMIC SPREADSHEET TABLE -->
         </div>
       </div>
+    </div>
+  </div>
 
-      <div id="editActions" class="panel-card" style="display:none;">
-        <button class="btn-danger" onclick="deleteSelectedPin()">🗑️ Delete Selected Pin</button>
-        <button class="btn-sec" onclick="deselectPin()">Cancel Selection</button>
+  <!-- SPREADSHEET EXPANDED MODAL -->
+  <div id="tableModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="panel-title" style="font-size: 16px;">
+        <span>📊 All Pins & Quiz Questions Manager</span>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-sec" onclick="addNewPinViaTable()">➕ Add Line</button>
+          <button class="btn-sec" onclick="copyPinTableToClipboard()">📋 Copy Table (TSV)</button>
+          <button class="btn-sec" onclick="openPasteModal()">📥 Paste / Import</button>
+          <button class="btn-danger" onclick="closeTableModal()">✕ Close</button>
+        </div>
+      </div>
+      <div id="modalTableHost" class="excel-table-wrapper" tabindex="0">
+        <!-- MODAL TABLE HOST -->
+      </div>
+    </div>
+  </div>
+
+  <!-- BULK IMPORT TSV MODAL -->
+  <div id="pasteModal" class="modal-overlay">
+    <div class="modal-box" style="width: 700px; height: 540px;">
+      <div class="panel-title" style="font-size: 16px;">
+        <span>📥 Bulk Import Pins or Quiz Questions</span>
+        <button class="btn-danger" onclick="closePasteModal()">✕</button>
+      </div>
+      <p style="font-size: 12px; color: #555; margin: 0;">Paste copied lines directly from Excel (tab-separated). Existing pins are updated by <b>Slide + Pin #</b>; new numbers create new pins. Slides that don't exist yet are created as blank placeholders.</p>
+
+      <div style="font-size: 11px; color: #333; background: #eef1f5; padding: 8px; border-radius: 4px; line-height: 1.6;">
+        <b>Format 1 – Quiz question (short):</b><br>
+        <code>Slide | MC or TF | Question_Text | Opt_A | Opt_B | Opt_C | Opt_D | Correct_Answer</code><br>
+        <b>Format 2 – "Copy Table" output (round-trip):</b><br>
+        <code>Slide | [Quiz] | Text | Type | Correct | – | – | – | – | – | Opt_A | Opt_B | Opt_C | Opt_D</code><br>
+        <code>Slide | Pin# | Tooltip | – | – | Outline HEX | BG HEX | X % | Y % | Rotation | – | – | – | – | Pin_ID</code><br>
+        Both formats can be mixed. <b>Pins are matched by Pin_ID</b> (last column), so changing a pin number never creates a duplicate. Without a Pin_ID column, rows are matched by position when a slide has the same number of rows as pins, otherwise by pin number. A header row is ignored. Use "-" or leave a cell empty to keep the current value.
       </div>
 
-      <div class="panel-card shortcuts-info">
-        <b>Mouse & Keyboard Shortcuts:</b>
-        <ul>
-          <li><b>Click Canvas</b>: Place / Move pin</li>
-          <li><b>Click Pin</b>: Select pin for editing</li>
-          <li><b>Mouse Wheel</b>: Adjust step number up/down</li>
-          <li><b>r / R</b>: Rotate 45° Clockwise</li>
-          <li><b>Alt + r</b>: Fine rotate 15° CW</li>
-          <li><b>Shift + r</b>: Rotate 45° CCW</li>
-          <li><b>Shift + Alt + r</b>: Fine rotate 15° CCW</li>
-        </ul>
+      <textarea id="pasteTextArea" style="flex: 1; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; font-family: monospace; font-size: 11px; resize: none;" placeholder="Slide 1&#9;MC&#9;Which option exports data?&#9;Informació&#9;Accions&#9;Exportar&#9;Search&#9;Exportar"></textarea>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn-sec" onclick="closePasteModal()">Cancel</button>
+        <button onclick="handleImportRows()">Import Rows</button>
       </div>
     </div>
   </div>
@@ -303,70 +575,410 @@
       <div id="presentPinLayer" style="position:absolute; top:0; left:0; width:100%; height:100%;"></div>
       <div id="hoverTooltip" class="pin-tooltip"></div>
     </div>
+
+    <!-- PRESENTATION QUIZ CARD OVERLAY -->
+    <div id="quizCardContainer">
+      <div class="quiz-question-title">
+        <span id="quizQuestionText">Question text...</span>
+        <span id="quizStatusBadge" style="font-size: 11px; background: #1a73e8; color: white; padding: 2px 8px; border-radius: 10px; white-space: nowrap;">Quiz Slide</span>
+      </div>
+      <div id="quizOptionsGrid" class="quiz-options-grid"></div>
+    </div>
+
     <div class="present-controls">
       <button class="btn-sec" onclick="prevSlide()">◀ Prev</button>
       <span id="slideCounter">Slide 1 / 1</span>
       <button class="btn-sec" onclick="nextSlide()">Next ▶</button>
+      <button class="btn-sec" onclick="printAllSlides()" title="Print all slides, one per page (Ctrl+P)">🖨️ Print / PDF</button>
       <button class="btn-sec" onclick="exitPresentation()">Exit Presentation</button>
     </div>
   </div>
 
-  <!-- EMBEDDED DATA STORAGE FOR EXPORTED PRESENTATIONS -->
+  <!-- PRINT LAYOUT: built from the slide data right before printing (one slide per page) -->
+  <div id="printArea" aria-hidden="true"></div>
+
+  <!-- EMBEDDED DATA STORAGE FOR EXPORTED PACKAGES -->
   <script id="presentationData" type="application/json">{"slides":[]}</script>
 
   <script>
-    // GLOBAL STATE
+    /* =====================================================
+       GLOBAL STATE
+    ===================================================== */
     let state = {
-      slides: [], 
+      slides: [],
       currentSlideIdx: 0,
-      selectedPinId: null, 
+      selectedPinId: null,
       currentRotation: 0,
       nextStepNum: 1
     };
-    let isUnlocked = true; // Controls full editor access
+    let learnerQuizAnswers = {};   // { slideIdx: submittedAnswerValue }
+    let isUnlocked = true;
+    let scormAPI = null;
 
-    // INITIALIZATION
+    // DRAG TRACKING STATE
+    let isDraggingPin = false;
+    let activeDragPinId = null;
+    let dragHasMoved = false;
+
+    const MAX_PLACEHOLDER_SLIDES = 500;
+
+    /* =====================================================
+       SMALL HELPERS
+    ===================================================== */
+    function escapeHtml(text) {
+      return String(text == null ? '' : text)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function newQuestion() {
+      return { type: 'none', text: '', options: ['', '', '', ''], correct: 'A' };
+    }
+
+    function isEditorActive() {
+      const el = document.getElementById('editorView');
+      return !!(el && el.classList.contains('active'));
+    }
+
+    function makePlaceholderSlide(num) {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450">' +
+                  '<rect width="100%" height="100%" fill="#eeeeee"/>' +
+                  '<text x="50%" y="50%" font-size="24" font-family="Arial" text-anchor="middle" fill="#888">Slide ' + num + '</text></svg>';
+      return {
+        id: 'slide_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        dataUrl: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+        pins: [],
+        question: newQuestion()
+      };
+    }
+
+    // Normalise a "correct answer" value depending on question type
+    function normalizeCorrect(type, value) {
+      const v = String(value == null ? '' : value).trim();
+      if (type === 'tf') return /^f/i.test(v) ? 'False' : 'True';
+      if (type === 'mc') {
+        const c = v.charAt(0).toUpperCase();
+        return 'ABCD'.includes(c) && c ? c : 'A';
+      }
+      return v;
+    }
+
+    /* =====================================================
+       SCORM 1.2 INTEGRATION WRAPPER
+       What the player reports to the LMS (Moodle):
+         - cmi.core.score.* / lesson_status  : % of correct quiz answers, passed/failed on the last slide
+         - cmi.core.session_time             : active time (tab visible) spent in the slides
+         - cmi.core.lesson_location          : current slide number (resume point)
+         - cmi.suspend_data                  : per-slide seconds, visits and first-opened time of day
+                                               + the learner's answers (so a re-launch can resume)
+         - cmi.interactions.n.*              : one record per answered quiz question
+    ===================================================== */
+    let scormFinished = false;
+
+    function findSCORMAPI(win) {
+      win = win || window;
+      let attempts = 0;
+      while (win.parent && win.parent !== win && attempts < 10) {
+        attempts++;
+        try { if (win.parent.API) return win.parent.API; } catch (e) { return null; }
+        win = win.parent;
+      }
+      return win.opener && win.opener.API ? win.opener.API : null;
+    }
+
+    function lmsGet(el) {
+      try {
+        const v = scormAPI.LMSGetValue(el);
+        return (v === undefined || v === null) ? '' : String(v);
+      } catch (e) { return ''; }
+    }
+
+    function lmsSet(el, val) {
+      try {
+        const ok = scormAPI.LMSSetValue(el, String(val));
+        if (ok === false || ok === 'false') {
+          let err = '';
+          try { const c = scormAPI.LMSGetLastError(); err = c + ' ' + scormAPI.LMSGetErrorString(c); } catch (e) {}
+          console.warn('SCORM value rejected:', el, '=', val, err);
+        }
+      } catch (e) { console.warn('SCORM set failed:', el, e); }
+    }
+
+    const pad2 = n => String(n).padStart(2, '0');
+    // SCORM 1.2 CMITimespan  HH:MM:SS
+    function scormTimespan(sec) {
+      sec = Math.max(0, Math.round(sec));
+      return pad2(Math.floor(sec / 3600)) + ':' + pad2(Math.floor((sec % 3600) / 60)) + ':' + pad2(sec % 60);
+    }
+    // SCORM 1.2 CMITime  HH:MM:SS (local time of day of the learner's computer)
+    function clockTime(ms) {
+      const d = new Date(ms);
+      return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+    }
+
+    /* ---------- per-slide time tracking ---------- */
+    const track = {
+      stats: {},          // { slideIdx: { sec, visits, first } }   first = "HH:MM:SS" the slide was first opened
+      cur: null,          // slide being timed (null when the player is not shown)
+      since: null,        // ms timestamp where the running segment started (null while paused / tab hidden)
+      interactions: 0,    // next cmi.interactions.n index
+      timer: null
+    };
+    const TRACK_AUTOSAVE_MS = 30000;
+
+    function trackStat(idx) {
+      return track.stats[idx] || (track.stats[idx] = { sec: 0, visits: 0, first: '' });
+    }
+
+    // add the time elapsed since the last flush to the current slide
+    function trackFlush() {
+      if (track.cur !== null && track.since !== null) {
+        const now = Date.now();
+        trackStat(track.cur).sec += (now - track.since) / 1000;
+        track.since = now;
+      }
+    }
+
+    // called every time the player shows a slide (re-rendering the same slide after an answer is not a new visit)
+    function trackSwitch(idx) {
+      if (track.cur === idx) {
+        if (track.since === null && document.visibilityState === 'visible') track.since = Date.now();
+        return;
+      }
+      trackFlush();
+      track.cur = idx;
+      const st = trackStat(idx);
+      st.visits++;
+      if (!st.first) st.first = clockTime(Date.now());
+      track.since = (document.visibilityState === 'visible') ? Date.now() : null;
+      if (!track.timer && scormAPI) {
+        // keep the LMS up to date while the learner stays on one slide (also refreshes "last access")
+        track.timer = setInterval(() => {
+          if (track.cur !== null && document.visibilityState === 'visible') calculateAndSendSCORMGrade();
+        }, TRACK_AUTOSAVE_MS);
+      }
+    }
+
+    function trackPause() {
+      trackFlush();
+      track.since = null;
+      track.cur = null;
+    }
+
+    function totalActiveSeconds() {
+      trackFlush();
+      let t = 0;
+      Object.keys(track.stats).forEach(k => { t += track.stats[k].sec; });
+      return t;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        if (track.cur !== null) {
+          trackFlush();
+          track.since = null;                 // stop the clock while the tab is in the background
+          if (scormAPI) calculateAndSendSCORMGrade();
+        }
+      } else if (track.cur !== null && track.since === null) {
+        track.since = Date.now();
+      }
+    });
+
+    /* ---------- suspend_data: "v1|c=3|i=2|a=1:True,7:D|t=1,12,1,10:31:07;2,8,1,10:31:19" ----------
+       c = current slide (1-based)   i = interactions already sent   a = answers (slide:answer)
+       t = per visited slide: slide,seconds,visits,first-opened time of day                      */
+    function buildSuspendData() {
+      trackFlush();
+      const answers = Object.keys(learnerQuizAnswers)
+        .map(k => (parseInt(k, 10) + 1) + ':' + learnerQuizAnswers[k]).join(',');
+      const rows = [];
+      state.slides.forEach((_, i) => {
+        const st = track.stats[i];
+        if (st && st.visits > 0) rows.push([i + 1, Math.round(st.sec), st.visits, st.first || '']);
+      });
+      const head = 'v1|c=' + (state.currentSlideIdx + 1) + '|i=' + track.interactions + '|a=' + answers + '|t=';
+      let data = head + rows.map(r => r.join(',')).join(';');
+      if (data.length > 4000) {               // SCORM 1.2 limit is 4096 chars: drop the time-of-day column
+        data = head + rows.map(r => r.slice(0, 3).join(',')).join(';');
+      }
+      return data.slice(0, 4096);
+    }
+
+    function restoreFromSuspendData(str) {
+      if (!str || str.indexOf('v1|') !== 0) return false;
+      try {
+        const f = {};
+        str.split('|').slice(1).forEach(part => {
+          const i = part.indexOf('=');
+          if (i > 0) f[part.slice(0, i)] = part.slice(i + 1);
+        });
+        const n = state.slides.length;
+
+        (f.a || '').split(',').forEach(p => {
+          const i = p.indexOf(':');
+          if (i < 1) return;
+          const idx = parseInt(p.slice(0, i), 10) - 1;
+          const val = p.slice(i + 1);
+          if (idx >= 0 && idx < n && val) learnerQuizAnswers[idx] = val;
+        });
+
+        (f.t || '').split(';').forEach(p => {
+          const c = p.split(',');
+          const idx = parseInt(c[0], 10) - 1;
+          if (idx >= 0 && idx < n) {
+            track.stats[idx] = { sec: parseFloat(c[1]) || 0, visits: parseInt(c[2], 10) || 0, first: c[3] || '' };
+          }
+        });
+
+        track.interactions = parseInt(f.i, 10) || 0;
+        const cur = parseInt(f.c, 10) - 1;
+        if (cur >= 0 && cur < n) state.currentSlideIdx = cur;
+        return true;
+      } catch (e) {
+        console.warn('suspend_data could not be restored:', e);
+        return false;
+      }
+    }
+
+    function resumeFromLMS() {
+      if (!scormAPI) return;
+      const sd = lmsGet('cmi.suspend_data');
+      if (sd) restoreFromSuspendData(sd);
+    }
+
+    /* ---------- cmi.interactions: one record per answered question ---------- */
+    function interactionId(idx, q) {
+      // CMIIdentifier: printable ASCII, no spaces
+      const slug = String(q.text || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+      return 'S' + (idx + 1) + (slug ? '_' + slug : '');
+    }
+
+    function recordInteraction(slideIdx, answerVal) {
+      const slide = state.slides[slideIdx];
+      const q = slide && slide.question;
+      if (!q || !scormAPI) return;
+
+      trackFlush();
+      const seconds = trackStat(slideIdx).sec;      // time on this slide before answering
+      const n = track.interactions++;
+      const isTf = q.type === 'tf';
+      const code = v => isTf ? (v === 'True' ? 't' : 'f') : String(v).toLowerCase();
+      const pre = 'cmi.interactions.' + n + '.';
+
+      lmsSet(pre + 'id', interactionId(slideIdx, q));
+      lmsSet(pre + 'type', isTf ? 'true-false' : 'choice');
+      lmsSet(pre + 'correct_responses.0.pattern', code(q.correct));
+      lmsSet(pre + 'weighting', '1');
+      lmsSet(pre + 'student_response', code(answerVal));
+      lmsSet(pre + 'result', answerVal === q.correct ? 'correct' : 'wrong');
+      lmsSet(pre + 'latency', scormTimespan(seconds));
+      lmsSet(pre + 'time', clockTime(Date.now()));
+    }
+
+    /* ---------- LMS session ---------- */
+    function initSCORM() {
+      scormAPI = findSCORMAPI();
+      if (scormAPI) {
+        try {
+          scormAPI.LMSInitialize("");
+          // never downgrade a status from an earlier session (passed / failed / completed)
+          const status = lmsGet("cmi.core.lesson_status");
+          if (!status || status === 'not attempted') lmsSet("cmi.core.lesson_status", "incomplete");
+          scormAPI.LMSCommit("");
+        } catch (e) { console.warn("SCORM init warning:", e); }
+      }
+    }
+
+    function calculateAndSendSCORMGrade() {
+      if (!scormAPI) scormAPI = findSCORMAPI();
+
+      let totalQuestions = 0;
+      let correctAnswers = 0;
+
+      state.slides.forEach((slide, idx) => {
+        if (slide.question && slide.question.type && slide.question.type !== 'none') {
+          totalQuestions++;
+          const userAnswer = learnerQuizAnswers[idx];
+          if (userAnswer && userAnswer === slide.question.correct) correctAnswers++;
+        }
+      });
+
+      let finalScore = 100;
+      if (totalQuestions > 0) finalScore = Math.round((correctAnswers / totalQuestions) * 100);
+
+      if (scormAPI) {
+        try {
+          lmsSet("cmi.core.score.min", "0");
+          lmsSet("cmi.core.score.max", "100");
+          lmsSet("cmi.core.score.raw", finalScore);
+
+          if (state.currentSlideIdx === state.slides.length - 1) {
+            const isPassed = (totalQuestions === 0) ? true : (finalScore >= 70);
+            lmsSet("cmi.core.lesson_status", isPassed ? "passed" : "failed");
+          }
+
+          // timing / resume data
+          lmsSet("cmi.suspend_data", buildSuspendData());
+          lmsSet("cmi.core.lesson_location", state.currentSlideIdx + 1);
+          lmsSet("cmi.core.session_time", scormTimespan(totalActiveSeconds()));
+
+          scormAPI.LMSCommit("");
+        } catch (e) { console.warn("SCORM update warning:", e); }
+      }
+    }
+
+    function finishSCORM() {
+      if (!scormAPI || scormFinished) return;
+      scormFinished = true;
+      try { trackFlush(); } catch (e) {}
+      calculateAndSendSCORMGrade();                 // final score, session time and suspend data
+      try { scormAPI.LMSCommit(""); scormAPI.LMSFinish(""); } catch (e) {}
+    }
+
+    /* =====================================================
+       INITIALIZATION
+    ===================================================== */
     window.addEventListener('DOMContentLoaded', () => {
+      initSCORM();
+      attachGlobalPasteInterceptor();   // always active (also when a saved project is loaded)
+
+      const imageInput = document.getElementById('fileImageInput');
+      if (imageInput) imageInput.addEventListener('change', handleImageUpload);
+
       const dataElem = document.getElementById('presentationData');
       if (dataElem && dataElem.textContent.trim()) {
         try {
           const loaded = JSON.parse(dataElem.textContent);
           if (loaded.slides && loaded.slides.length > 0) {
             state.slides = loaded.slides;
-            
-            // If opening an exported presentation, hide topbar
             if (loaded.isExported) {
               isUnlocked = false;
               document.body.classList.add('no-topbar');
+              resumeFromLMS();      // restore answers / times / current slide from a previous session
             }
-            
             renderTileGrid();
-            switchView('present'); 
+            switchView('present');
             return;
           }
-        } catch(e) {}
+        } catch (e) { console.warn('Embedded data could not be parsed:', e); }
       }
       renderTileGrid();
     });
 
-    // SECRET UNLOCK (Shift + M)
-    function unlockEditorMode() {
-      isUnlocked = true;
-      document.body.classList.remove('no-topbar');
-      alert("Editor Mode Unlocked!");
-    }
+    window.addEventListener('pagehide', (e) => { if (!e.persisted) finishSCORM(); });
+    window.addEventListener('unload', finishSCORM);
 
-    // EXIT PRESENTATION LOGIC
     function exitPresentation() {
-      if (!isUnlocked) {
-        window.close(); // Close tab if exported/locked
-      } else {
-        switchView('grid'); // Return to builder grid if unlocked
-      }
+      if (!isUnlocked) window.close();
+      else switchView('grid');
     }
 
-    // VIEW SWITCHING
+    /* =====================================================
+       VIEW SWITCHING
+    ===================================================== */
     function switchView(viewName) {
+      trackPause();       // slide timing runs only while the player is shown
       document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
       deselectPin();
 
@@ -387,21 +999,35 @@
       }
     }
 
-    // IMAGE UPLOAD & TILE GRID
+    /* =====================================================
+       IMAGE UPLOAD & TILE GRID
+    ===================================================== */
     function handleImageUpload(e) {
       const files = Array.from(e.target.files);
+      if (!files.length) return;
+      const results = new Array(files.length);
       let loadedCount = 0;
 
-      files.forEach(file => {
+      files.forEach((file, i) => {
         const reader = new FileReader();
         reader.onload = (evt) => {
-          state.slides.push({
+          results[i] = {
             id: 'slide_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
             dataUrl: evt.target.result,
-            pins: []
-          });
+            pins: [],
+            question: newQuestion()
+          };
           loadedCount++;
           if (loadedCount === files.length) {
+            // keep the order the user selected the files in
+            results.forEach(s => { if (s) state.slides.push(s); });
+            renderTileGrid();
+          }
+        };
+        reader.onerror = () => {
+          loadedCount++;
+          if (loadedCount === files.length) {
+            results.forEach(s => { if (s) state.slides.push(s); });
             renderTileGrid();
           }
         };
@@ -426,15 +1052,19 @@
         card.draggable = true;
         card.dataset.index = idx;
 
+        const hasQuiz = slide.question && slide.question.type && slide.question.type !== 'none';
+
         card.innerHTML = `
-          <div class="tile-img-box" onclick="openEditorForSlide(${idx})" style="cursor: pointer;" title="Click to open slide editor">
-            <span class="tile-badge">Step ${idx + 1}</span>
-            <img src="${slide.dataUrl}">
+          <div class="tile-img-box" onclick="openEditorForSlide(${idx})" style="cursor: pointer;">
+            <span class="tile-badge">Slide ${idx + 1}</span>
+            <img src="${escapeHtml(slide.dataUrl)}">
           </div>
           <div class="tile-actions">
-            <span style="font-size: 12px; font-weight: bold; color: #5f6368;">${slide.pins.length} Pins</span>
+            <span style="font-size: 11px; font-weight: bold; color: #5f6368;">
+              ${slide.pins.length} Pins ${hasQuiz ? ' | ❓ Quiz' : ''}
+            </span>
             <div style="display: flex; gap: 4px;">
-              <button class="btn-sec" onclick="openEditorForSlide(${idx})" title="Edit pins on this slide">✏️ Edit</button>
+              <button class="btn-sec" onclick="openEditorForSlide(${idx})">✏️</button>
               <button class="btn-sec" onclick="moveSlide(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>◄</button>
               <button class="btn-sec" onclick="moveSlide(${idx}, 1)" ${idx === state.slides.length - 1 ? 'disabled' : ''}>►</button>
               <button class="btn-danger" onclick="deleteSlide(${idx})">🗑️</button>
@@ -442,7 +1072,6 @@
           </div>
         `;
 
-        // Drag & Drop Reordering
         card.addEventListener('dragstart', (e) => {
           e.dataTransfer.setData('text/plain', idx);
           card.classList.add('dragging');
@@ -452,10 +1081,9 @@
         card.addEventListener('drop', (e) => {
           e.preventDefault();
           const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
-          const toIdx = idx;
-          if (fromIdx !== toIdx) {
+          if (!isNaN(fromIdx) && fromIdx !== idx) {
             const movedItem = state.slides.splice(fromIdx, 1)[0];
-            state.slides.splice(toIdx, 0, movedItem);
+            state.slides.splice(idx, 0, movedItem);
             renderTileGrid();
           }
         });
@@ -475,8 +1103,11 @@
     }
 
     function deleteSlide(idx) {
-      if (confirm('Delete this slide and its pins?')) {
+      if (confirm('Delete this slide?')) {
         state.slides.splice(idx, 1);
+        if (state.currentSlideIdx >= state.slides.length) {
+          state.currentSlideIdx = Math.max(0, state.slides.length - 1);
+        }
         renderTileGrid();
       }
     }
@@ -486,64 +1117,151 @@
       switchView('editor');
     }
 
-    // EDITOR ENGINE
+    /* =====================================================
+       EDITOR ENGINE
+    ===================================================== */
     function setupEditorSlide() {
       const slide = state.slides[state.currentSlideIdx];
       if (!slide) return;
 
-      const editorImg = document.getElementById('editorSlideImg');
-      editorImg.src = slide.dataUrl;
+      document.getElementById('editorSlideImg').src = slide.dataUrl;
+      document.getElementById('editorSlideCounter').textContent = `Slide ${state.currentSlideIdx + 1} / ${state.slides.length}`;
+      document.getElementById('btnPrevEditor').disabled = (state.currentSlideIdx === 0);
+      document.getElementById('btnNextEditor').disabled = (state.currentSlideIdx === state.slides.length - 1);
+
+      loadCurrentSlideQuizData();
+      deselectPin();          // also renders pins + table
       calculateNextNumber();
-      renderEditorPins();
+    }
+
+    function nextEditorSlide() {
+      if (state.currentSlideIdx < state.slides.length - 1) {
+        state.currentSlideIdx++;
+        setupEditorSlide();
+      }
+    }
+
+    function prevEditorSlide() {
+      if (state.currentSlideIdx > 0) {
+        state.currentSlideIdx--;
+        setupEditorSlide();
+      }
+    }
+
+    /* ---------- QUIZ EDITOR CONTROLS ---------- */
+    function loadCurrentSlideQuizData() {
+      const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
+      if (!slide.question) slide.question = newQuestion();
+
+      const q = slide.question;
+      document.getElementById('quizTypeSelect').value = q.type || 'none';
+      updateCurrentSlideQuizType(false);
+
+      document.getElementById('quizText').value = q.text || '';
+
+      // Legacy data stored ['True','False'] for T/F questions – don't show that in the A–D fields
+      let opts = Array.isArray(q.options) ? q.options.slice(0, 4) : [];
+      if (opts[0] === 'True' && opts[1] === 'False' && !opts[2] && !opts[3]) opts = [];
+      document.getElementById('optA').value = opts[0] || '';
+      document.getElementById('optB').value = opts[1] || '';
+      document.getElementById('optC').value = opts[2] || '';
+      document.getElementById('optD').value = opts[3] || '';
+
+      document.getElementById('correctMcSelect').value = (q.type === 'mc' && 'ABCD'.includes(q.correct)) ? q.correct : 'A';
+      document.getElementById('correctTfSelect').value = (q.type === 'tf' && q.correct === 'False') ? 'False' : 'True';
+    }
+
+    function updateCurrentSlideQuizType(save = true) {
+      const type = document.getElementById('quizTypeSelect').value;
+      const fieldsBox = document.getElementById('quizEditorFields');
+      const mcBox = document.getElementById('mcFields');
+      const tfBox = document.getElementById('tfFields');
+
+      if (type === 'none') {
+        fieldsBox.style.display = 'none';
+      } else {
+        fieldsBox.style.display = 'flex';
+        mcBox.style.display = (type === 'mc') ? 'flex' : 'none';
+        tfBox.style.display = (type === 'tf') ? 'flex' : 'none';
+      }
+
+      if (save) saveCurrentSlideQuizData();
+    }
+
+    function saveCurrentSlideQuizData() {
+      const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
+
+      const prev = slide.question || newQuestion();
+      const type = document.getElementById('quizTypeSelect').value;
+      const text = document.getElementById('quizText').value;
+
+      // Options are always remembered, so switching MC → T/F → MC doesn't lose them
+      const optionsArr = [
+        document.getElementById('optA').value,
+        document.getElementById('optB').value,
+        document.getElementById('optC').value,
+        document.getElementById('optD').value
+      ];
+
+      let correctVal = prev.correct || 'A';
+      if (type === 'mc') correctVal = document.getElementById('correctMcSelect').value;
+      else if (type === 'tf') correctVal = document.getElementById('correctTfSelect').value;
+
+      slide.question = { type: type, text: text, options: optionsArr, correct: correctVal };
+      renderPinTable();
     }
 
     function calculateNextNumber() {
       const slide = state.slides[state.currentSlideIdx];
       if (!slide) return;
       let maxNum = 0;
-      slide.pins.forEach(p => {
-        if (p.num > maxNum) maxNum = p.num;
-      });
+      slide.pins.forEach(p => { if (p.num > maxNum) maxNum = p.num; });
       state.nextStepNum = maxNum + 1;
       if (!state.selectedPinId) {
         document.getElementById('inputNum').value = state.nextStepNum;
       }
     }
 
+    /* ---------- PIN RENDERING ---------- */
     function renderEditorPins() {
-      const pinLayer = document.getElementById('pinLayer');
-      pinLayer.innerHTML = '';
+      const layer = document.getElementById('pinLayer');
+      layer.innerHTML = '';
       const slide = state.slides[state.currentSlideIdx];
       if (!slide) return;
 
       slide.pins.forEach(pin => {
         const elem = createPinElement(pin, true);
-        if (pin.id === state.selectedPinId) {
-          elem.classList.add('selected');
-        }
-        pinLayer.appendChild(elem);
+        if (pin.id === state.selectedPinId) elem.classList.add('selected');
+        layer.appendChild(elem);
       });
     }
 
     function createPinElement(pin, isEditor = false) {
       const div = document.createElement('div');
       div.className = 'pin-element';
+      div.dataset.id = pin.id;
       div.style.left = `${pin.xPct}%`;
       div.style.top = `${pin.yPct}%`;
 
-      const normalizedAngle = ((pin.rotation % 360) + 360) % 360;
+      const normalizedAngle = (((pin.rotation || 0) % 360) + 360) % 360;
 
       div.innerHTML = `
-        <div class="pin-body" style="background-color: ${pin.fillColor}; border: 3px solid ${pin.borderColor}; transform: rotate(${normalizedAngle}deg);">
-          <span class="pin-number" style="color: ${pin.borderColor}; transform: rotate(${-normalizedAngle}deg);">${pin.num}</span>
+        <div class="pin-body" style="background-color: ${escapeHtml(pin.fillColor)}; border: 3px solid ${escapeHtml(pin.borderColor)}; transform: rotate(${normalizedAngle}deg);">
+          <span class="pin-number" style="color: ${escapeHtml(pin.borderColor)}; transform: rotate(${-normalizedAngle}deg);">${escapeHtml(pin.num)}</span>
         </div>
       `;
 
       if (isEditor) {
-        div.onclick = (e) => {
+        div.addEventListener('mousedown', (e) => {
           e.stopPropagation();
+          e.preventDefault();
           selectPin(pin.id);
-        };
+          isDraggingPin = true;
+          activeDragPinId = pin.id;
+          dragHasMoved = false;
+        });
       } else {
         div.onmouseenter = () => {
           if (pin.tooltip && pin.tooltip.trim()) {
@@ -562,30 +1280,66 @@
       return div;
     }
 
-    // CROSSHAIR & PIN PLACEMENT/EDITING
+    /* ---------- CANVAS MOUSE EVENTS ---------- */
     const pinLayer = document.getElementById('pinLayer');
     const crosshair = document.getElementById('crosshair');
 
-    pinLayer.addEventListener('mousemove', (e) => {
+    window.addEventListener('mousemove', (e) => {
+      if (!pinLayer || !isEditorActive()) return;
       const rect = pinLayer.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
 
-      crosshair.style.left = `${x}px`;
-      crosshair.style.top = `${y}px`;
-      crosshair.style.display = 'block';
+      if (e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top && e.clientY <= rect.bottom) {
+        crosshair.style.left = `${e.clientX - rect.left}px`;
+        crosshair.style.top = `${e.clientY - rect.top}px`;
+        crosshair.style.display = 'block';
+      } else if (!isDraggingPin) {
+        crosshair.style.display = 'none';
+      }
+
+      if (isDraggingPin && activeDragPinId) {
+        dragHasMoved = true;
+
+        let xPct = parseFloat((((e.clientX - rect.left) / rect.width) * 100).toFixed(2));
+        let yPct = parseFloat((((e.clientY - rect.top) / rect.height) * 100).toFixed(2));
+        xPct = Math.max(0, Math.min(100, xPct));
+        yPct = Math.max(0, Math.min(100, yPct));
+
+        const slide = state.slides[state.currentSlideIdx];
+        if (!slide) return;
+        const pin = slide.pins.find(p => p.id === activeDragPinId);
+        if (pin) {
+          pin.xPct = xPct;
+          pin.yPct = yPct;
+          const pinElem = pinLayer.querySelector(`.pin-element[data-id="${activeDragPinId}"]`);
+          if (pinElem) {
+            pinElem.style.left = `${xPct}%`;
+            pinElem.style.top = `${yPct}%`;
+          }
+        }
+      }
     });
 
-    pinLayer.addEventListener('mouseleave', () => {
-      crosshair.style.display = 'none';
+    window.addEventListener('mouseup', () => {
+      if (isDraggingPin) {
+        isDraggingPin = false;
+        activeDragPinId = null;
+        renderPinTable();   // sync final position with the table
+        // The "click" that follows a drag fires right after mouseup; reset the flag afterwards
+        // so a drag that ends outside the canvas can't swallow the next real click.
+        setTimeout(() => { dragHasMoved = false; }, 0);
+      }
     });
 
     pinLayer.addEventListener('click', (e) => {
+      if (dragHasMoved) { dragHasMoved = false; return; }
+
       const rect = pinLayer.getBoundingClientRect();
-      const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-      const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+      const xPct = parseFloat((((e.clientX - rect.left) / rect.width) * 100).toFixed(2));
+      const yPct = parseFloat((((e.clientY - rect.top) / rect.height) * 100).toFixed(2));
 
       const slide = state.slides[state.currentSlideIdx];
+      if (!slide) return;
 
       if (state.selectedPinId) {
         const pin = slide.pins.find(p => p.id === state.selectedPinId);
@@ -593,49 +1347,58 @@
           pin.xPct = xPct;
           pin.yPct = yPct;
           renderEditorPins();
+          renderPinTable();
         }
       } else {
         const newPin = {
-          id: 'pin_' + Date.now(),
+          id: 'pin_' + Date.now() + '_' + Math.random().toString(36).substr(2, 3),
           num: parseInt(document.getElementById('inputNum').value, 10) || state.nextStepNum,
           xPct: xPct,
           yPct: yPct,
           rotation: state.currentRotation,
           fillColor: document.getElementById('inputFillColor').value,
           borderColor: document.getElementById('inputBorderColor').value,
-          tooltip: document.getElementById('inputTooltip').value
+          tooltip: ''
         };
-
         slide.pins.push(newPin);
         calculateNextNumber();
         renderEditorPins();
+        renderPinTable();
       }
     });
 
+    /* ---------- PIN SELECTION / EDITING ---------- */
     function selectPin(pinId) {
       state.selectedPinId = pinId;
       const slide = state.slides[state.currentSlideIdx];
-      const pin = slide.pins.find(p => p.id === pinId);
+      const pin = slide ? slide.pins.find(p => p.id === pinId) : null;
       if (!pin) return;
 
       document.getElementById('modeTitle').textContent = `Editing Pin #${pin.num}`;
       document.getElementById('inputNum').value = pin.num;
-      document.getElementById('inputAngle').value = pin.rotation;
+      document.getElementById('inputAngle').value = pin.rotation || 0;
       document.getElementById('inputFillColor').value = pin.fillColor;
       document.getElementById('inputBorderColor').value = pin.borderColor;
-      document.getElementById('inputTooltip').value = pin.tooltip || '';
+      const tip = document.getElementById('inputTooltip');
+      tip.disabled = false;
+      tip.value = pin.tooltip || '';
       document.getElementById('editActions').style.display = 'flex';
 
-      state.currentRotation = pin.rotation;
+      state.currentRotation = pin.rotation || 0;
       renderEditorPins();
+      renderPinTable();
     }
 
     function deselectPin() {
       state.selectedPinId = null;
       document.getElementById('modeTitle').textContent = 'New Pin Mode';
       document.getElementById('editActions').style.display = 'none';
+      const tip = document.getElementById('inputTooltip');
+      tip.value = '';
+      tip.disabled = true;
       calculateNextNumber();
       renderEditorPins();
+      renderPinTable();
     }
 
     function updateActivePin() {
@@ -648,40 +1411,12 @@
           pin.fillColor = document.getElementById('inputFillColor').value;
           pin.borderColor = document.getElementById('inputBorderColor').value;
           pin.tooltip = document.getElementById('inputTooltip').value;
+          document.getElementById('modeTitle').textContent = `Editing Pin #${pin.num}`;
           renderEditorPins();
+          renderPinTable();
         }
       } else {
         state.currentRotation = parseInt(document.getElementById('inputAngle').value, 10) || 0;
-      }
-    }
-
-    function rotateActivePin(deg) {
-      if (state.selectedPinId) {
-        const slide = state.slides[state.currentSlideIdx];
-        const pin = slide.pins.find(p => p.id === state.selectedPinId);
-        if (pin) {
-          pin.rotation = ((pin.rotation + deg) % 360 + 360) % 360;
-          document.getElementById('inputAngle').value = pin.rotation;
-          renderEditorPins();
-        }
-      } else {
-        state.currentRotation = ((state.currentRotation + deg) % 360 + 360) % 360;
-        document.getElementById('inputAngle').value = state.currentRotation;
-      }
-    }
-
-    function resetRotation() {
-      if (state.selectedPinId) {
-        const slide = state.slides[state.currentSlideIdx];
-        const pin = slide.pins.find(p => p.id === state.selectedPinId);
-        if (pin) {
-          pin.rotation = 0;
-          document.getElementById('inputAngle').value = 0;
-          renderEditorPins();
-        }
-      } else {
-        state.currentRotation = 0;
-        document.getElementById('inputAngle').value = 0;
       }
     }
 
@@ -692,75 +1427,694 @@
       deselectPin();
     }
 
-    // MOUSE WHEEL CONTROL
-    window.addEventListener('wheel', (e) => {
-      const editorViewActive = document.getElementById('editorView').classList.contains('active');
-      const presentViewActive = document.getElementById('presentView').classList.contains('active');
+    /* =====================================================
+       SPREADSHEET TABLE MANAGER
+       Columns (15): Slide | Pin # | Tooltip / Question Text | Quiz Type | Correct Answer |
+                     Outline (HEX) | BG Color (HEX) | Rel X % | Rel Y % | Rotation |
+                     Opt A | Opt B | Opt C | Opt D | Pin ID
+    ===================================================== */
+    let currentTableContainerId = 'sidebarTableHost';
 
-      if (editorViewActive) {
-        e.preventDefault();
-        const numInput = document.getElementById('inputNum');
-        let val = parseInt(numInput.value, 10) || 1;
-        if (e.deltaY < 0) val++;
-        else if (e.deltaY > 0 && val > 1) val--;
+    const TABLE_HEADERS = [
+      "Slide", "Pin #", "Tooltip / Question Text", "Quiz Type", "Correct Answer",
+      "Outline (HEX)", "BG Color (HEX)", "Rel X %", "Rel Y %", "Rotation",
+      "Opt A", "Opt B", "Opt C", "Opt D", "Pin ID"
+    ];
 
-        numInput.value = val;
-        updateActivePin();
-      } else if (presentViewActive) {
-        e.preventDefault();
-        if (e.deltaY > 0) nextSlide();
-        else if (e.deltaY < 0) prevSlide();
+    function renderPinTable() {
+      const host = document.getElementById(currentTableContainerId);
+      if (!host) return;
+
+      let html = `<table class="excel-table"><thead><tr>` +
+        TABLE_HEADERS.map(h => `<th>${h}</th>`).join('') +
+        `</tr></thead><tbody>`;
+
+      state.slides.forEach((slide, slideIdx) => {
+        const q = slide.question || newQuestion();
+        const opts = Array.isArray(q.options) ? q.options : [];
+        const optCell = (i) =>
+          `<td ondblclick="enableCellEdit(this)" onblur="handleQuizCellBlur(this, ${slideIdx}, 'opt${i}')">${escapeHtml(opts[i] || '')}</td>`;
+
+        html += `
+          <tr style="background: #fdf8e1;">
+            <td style="font-weight: bold;">Slide ${slideIdx + 1}</td>
+            <td style="color:#888;">[Quiz]</td>
+            <td ondblclick="enableCellEdit(this)" onblur="handleQuizCellBlur(this, ${slideIdx}, 'text')">${escapeHtml(q.text || '')}</td>
+            <td ondblclick="enableCellEdit(this)" onblur="handleQuizCellBlur(this, ${slideIdx}, 'type')"><b>${escapeHtml((q.type || 'none').toUpperCase())}</b></td>
+            <td ondblclick="enableCellEdit(this)" onblur="handleQuizCellBlur(this, ${slideIdx}, 'correct')">${escapeHtml(q.correct || '')}</td>
+            <td colspan="5" style="color:#777; font-size:10px;">Configured in Quiz Sidebar</td>
+            ${optCell(0)}${optCell(1)}${optCell(2)}${optCell(3)}<td></td>
+          </tr>
+        `;
+
+        slide.pins.forEach((pin) => {
+          const isSelected = (pin.id === state.selectedPinId);
+          const pid = escapeHtml(pin.id);
+          html += `
+            <tr data-pin-id="${pid}" class="${isSelected ? 'selected-row' : ''}">
+              <td>Slide ${slideIdx + 1}</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'num')">${escapeHtml(pin.num)}</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'tooltip')">${escapeHtml(pin.tooltip || '')}</td>
+              <td style="color:#aaa;">-</td>
+              <td style="color:#aaa;">-</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'borderColor')">${escapeHtml(pin.borderColor)}</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'fillColor')">${escapeHtml(pin.fillColor)}</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'xPct')">${escapeHtml(pin.xPct)}</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'yPct')">${escapeHtml(pin.yPct)}</td>
+              <td ondblclick="enableCellEdit(this)" onblur="handleCellBlur(this, '${pid}', ${slideIdx}, 'rotation')">${escapeHtml(pin.rotation || 0)}</td>
+              <td colspan="4" style="color:#aaa;">-</td>
+              <td style="color:#888; font-size:9px;">${pid}</td>
+            </tr>
+          `;
+        });
+      });
+
+      html += `</tbody></table>`;
+      host.innerHTML = html;
+      indexTableCells(host);
+      restoreCellSelection(host);
+    }
+
+    /* =====================================================
+       SPREADSHEET-STYLE CELL SELECTION & KEYBOARD NAVIGATION
+       - click a cell        -> selects it (arrow keys move the selection)
+       - Enter / F2 / dblclick -> edit the selected cell (caret at the end)
+       - Enter while editing -> confirms and returns to the selected cell
+       - Escape while editing -> cancels the edit and returns to the selected cell
+       Some rows use colspan, so every cell gets a logical column index (data-c / data-span).
+    ===================================================== */
+    const tableSel = {};   // { hostId: { r: rowIndex, c: logicalColumn } }
+
+    function indexTableCells(host) {
+      host.querySelectorAll('tbody tr').forEach(tr => {
+        let col = 0;
+        Array.from(tr.cells).forEach(td => {
+          td.dataset.c = col;
+          td.dataset.span = td.colSpan || 1;
+          col += td.colSpan || 1;
+        });
+      });
+    }
+
+    function getTableBody(host) { return host.querySelector('tbody'); }
+
+    function cellAtLogical(host, r, c) {
+      const tbody = getTableBody(host);
+      if (!tbody) return null;
+      const row = tbody.rows[r];
+      if (!row) return null;
+      for (const td of row.cells) {
+        const s = parseInt(td.dataset.c, 10), n = parseInt(td.dataset.span, 10);
+        if (c >= s && c < s + n) return td;
       }
-    }, { passive: false });
+      return row.cells[row.cells.length - 1] || null;
+    }
 
-    // KEYBOARD SHORTCUTS & SECRET UNLOCK KEY
-    window.addEventListener('keydown', (e) => {
-      // Ignore text input when focused on input/textarea
-      const activeTag = document.activeElement ? document.activeElement.tagName.toUpperCase() : '';
-      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
-        return;
+    function ensureCellVisible(host, td) {
+      const headH = (host.querySelector('thead') || { offsetHeight: 0 }).offsetHeight;
+      const hr = host.getBoundingClientRect();
+      const tr = td.getBoundingClientRect();
+      if (tr.top < hr.top + headH) host.scrollTop -= (hr.top + headH - tr.top);
+      else if (tr.bottom > hr.bottom) host.scrollTop += (tr.bottom - hr.bottom);
+      if (tr.left < hr.left) host.scrollLeft -= (hr.left - tr.left);
+      else if (tr.right > hr.right) host.scrollLeft += (tr.right - hr.right);
+    }
+
+    // Select a cell element; "wantedCol" keeps the column "memory" when moving up/down across colspan rows
+    function selectCellEl(td, host, wantedCol) {
+      if (!td || !host) return;
+      host.querySelectorAll('td.cell-selected').forEach(x => x.classList.remove('cell-selected'));
+      td.classList.add('cell-selected');
+      const row = td.parentElement;
+      const r = Array.prototype.indexOf.call(getTableBody(host).rows, row);
+      tableSel[host.id] = { r: r, c: wantedCol !== undefined ? wantedCol : parseInt(td.dataset.c, 10) };
+      ensureCellVisible(host, td);
+    }
+
+    function restoreCellSelection(host) {
+      const sel = tableSel[host.id];
+      if (!sel) return;
+      const tbody = getTableBody(host);
+      if (!tbody || !tbody.rows.length) return;
+      const r = Math.min(sel.r, tbody.rows.length - 1);
+      const td = cellAtLogical(host, r, sel.c);
+      if (td) {
+        td.classList.add('cell-selected');
+        tableSel[host.id].r = r;
       }
+    }
 
-      // Secret Key Combo: Shift + M to unlock Editor Mode
-      if (e.shiftKey && (e.code === 'KeyM' || e.key === 'M' || e.key === 'm')) {
-        e.preventDefault();
-        unlockEditorMode();
-        return;
+    function placeCaretAtEnd(el) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(range);
+    }
+
+    function isCellEditable(td) { return !!td && td.hasAttribute('ondblclick'); }
+
+    // Start editing (double-click, Enter or F2)
+    function enableCellEdit(cell) {
+      if (!isCellEditable(cell) || cell.isContentEditable) return;
+      const host = cell.closest('.excel-table-wrapper');
+      if (host) selectCellEl(cell, host);
+      cell.dataset.origHtml = cell.innerHTML;
+      cell.contentEditable = "true";
+      cell.focus();
+      placeCaretAtEnd(cell);
+    }
+
+    // Leave edit mode: keep the selection and give the keyboard back to the table
+    function finishCellEdit(cell, host, cancel) {
+      if (cancel && cell.dataset.origHtml !== undefined) cell.innerHTML = cell.dataset.origHtml;
+      delete cell.dataset.origHtml;
+      cell.blur();                        // triggers the commit handler (onblur)
+      if (host) {
+        host.focus({ preventScroll: true });
+        // the cell may have been re-rendered; make sure the selection highlight is still there
+        const sel = tableSel[host.id];
+        if (sel && !host.querySelector('td.cell-selected')) restoreCellSelection(host);
       }
+    }
 
-      const editorViewActive = document.getElementById('editorView').classList.contains('active');
-      const presentViewActive = document.getElementById('presentView').classList.contains('active');
-
-      if (editorViewActive) {
-        if (e.key === 'r' || e.key === 'R') {
-          e.preventDefault();
-          if (e.shiftKey && e.altKey) rotateActivePin(-15);
-          else if (e.shiftKey) rotateActivePin(-45);
-          else if (e.altKey) rotateActivePin(15);
-          else rotateActivePin(45);
-        }
-      } else if (presentViewActive) {
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
-          nextSlide();
-        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
-          prevSlide();
-        }
-      }
+    // Single click selects a cell (the cell being edited keeps its caret behaviour)
+    document.addEventListener('mousedown', (e) => {
+      const td = e.target.closest && e.target.closest('.excel-table-wrapper td');
+      if (!td || td.isContentEditable) return;
+      const host = td.closest('.excel-table-wrapper');
+      selectCellEl(td, host);
+      // focus the table container (not the cell) so that arrow keys work immediately
+      setTimeout(() => { if (!document.activeElement || !document.activeElement.isContentEditable) host.focus({ preventScroll: true }); }, 0);
     });
 
-    // PRESENTATION MODE PLAYER
+    document.addEventListener('keydown', (e) => {
+      const t = e.target;
+      const host = t && t.closest ? t.closest('.excel-table-wrapper') : null;
+      if (!host) return;
+
+      // ---- while editing a cell ----
+      if (t.tagName === 'TD' && t.isContentEditable) {
+        if (e.key === 'Enter') {
+          e.preventDefault(); e.stopPropagation();
+          finishCellEdit(t, host, false);
+        } else if (e.key === 'Escape') {
+          e.preventDefault(); e.stopPropagation();
+          finishCellEdit(t, host, true);
+        }
+        return;
+      }
+
+      // ---- navigation mode (table container focused) ----
+      if (t !== host) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;     // leave Ctrl+C / Ctrl+V etc. alone
+
+      const tbody = getTableBody(host);
+      if (!tbody || !tbody.rows.length) return;
+
+      const arrows = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+      if (arrows[e.key]) {
+        e.preventDefault(); e.stopPropagation();
+        const maxCol = TABLE_HEADERS.length - 1;
+        let sel = tableSel[host.id];
+        const cur = sel ? cellAtLogical(host, Math.min(sel.r, tbody.rows.length - 1), sel.c) : null;
+        if (!sel || !cur) {                                // nothing selected yet -> start at the first cell
+          selectCellEl(cellAtLogical(host, 0, 0), host);
+          return;
+        }
+        const [dr, dc] = arrows[e.key];
+        let r = Math.min(sel.r, tbody.rows.length - 1);
+        let c = sel.c;
+        if (dc !== 0) {
+          const start = parseInt(cur.dataset.c, 10), span = parseInt(cur.dataset.span, 10);
+          c = dc < 0 ? start - 1 : start + span;
+          c = Math.max(0, Math.min(maxCol, c));
+        }
+        r = Math.max(0, Math.min(tbody.rows.length - 1, r + dr));
+        selectCellEl(cellAtLogical(host, r, c), host, c);
+        return;
+      }
+
+      if (e.key === 'Enter' || e.key === 'F2') {
+        const sel = tableSel[host.id];
+        const cur = sel ? cellAtLogical(host, Math.min(sel.r, tbody.rows.length - 1), sel.c) : null;
+        if (cur) {
+          e.preventDefault(); e.stopPropagation();
+          if (isCellEditable(cur)) enableCellEdit(cur);
+        }
+      }
+    }, true);
+
+    // Quiz-row cell edited
+    function handleQuizCellBlur(cell, slideIdx, field) {
+      cell.contentEditable = "false";
+      const slide = state.slides[slideIdx];
+      if (!slide) return;
+      if (!slide.question) slide.question = newQuestion();
+      const q = slide.question;
+      if (!Array.isArray(q.options)) q.options = ['', '', '', ''];
+      const v = cell.textContent.trim();
+
+      if (field === 'text') {
+        q.text = v;
+      } else if (field === 'type') {
+        const t = v.toLowerCase();
+        if (['none', 'mc', 'tf'].includes(t)) {
+          q.type = t;
+          q.correct = normalizeCorrect(t, q.correct);
+        }
+        cell.innerHTML = `<b>${escapeHtml((q.type || 'none').toUpperCase())}</b>`;
+      } else if (field === 'correct') {
+        q.correct = normalizeCorrect(q.type, v);
+        cell.textContent = q.correct;
+      } else if (field.startsWith('opt')) {
+        q.options[parseInt(field.slice(3), 10)] = v;
+      }
+
+      if (slideIdx === state.currentSlideIdx) loadCurrentSlideQuizData();
+    }
+
+    // Pin-row cell edited
+    function handleCellBlur(cell, pinId, slideIdx, field) {
+      cell.contentEditable = "false";
+      const slide = state.slides[slideIdx];
+      if (!slide) return;
+      const pin = slide.pins.find(p => p.id === pinId);
+      if (!pin) return;
+      const v = cell.textContent.trim();
+
+      if (field === 'num') {
+        pin.num = parseInt(v, 10) || pin.num;
+        cell.textContent = pin.num;
+      } else if (field === 'tooltip') {
+        pin.tooltip = v;
+      } else if (field === 'borderColor' || field === 'fillColor') {
+        if (/^#[0-9a-fA-F]{6}$/.test(v)) pin[field] = v;
+        cell.textContent = pin[field];
+      } else if (field === 'xPct' || field === 'yPct') {
+        const n = parseFloat(v);
+        if (!isNaN(n)) pin[field] = Math.max(0, Math.min(100, n));
+        cell.textContent = pin[field];
+      } else if (field === 'rotation') {
+        const n = parseInt(v, 10);
+        pin.rotation = isNaN(n) ? (pin.rotation || 0) : (((n % 360) + 360) % 360);
+        cell.textContent = pin.rotation;
+      }
+
+      if (slideIdx === state.currentSlideIdx && isEditorActive()) {
+        renderEditorPins();
+        if (state.selectedPinId === pin.id) selectPinFieldsOnly(pin);
+      }
+    }
+
+    // Update the sidebar inputs for the selected pin without re-rendering the table
+    function selectPinFieldsOnly(pin) {
+      document.getElementById('modeTitle').textContent = `Editing Pin #${pin.num}`;
+      document.getElementById('inputNum').value = pin.num;
+      document.getElementById('inputAngle').value = pin.rotation || 0;
+      document.getElementById('inputFillColor').value = pin.fillColor;
+      document.getElementById('inputBorderColor').value = pin.borderColor;
+      document.getElementById('inputTooltip').value = pin.tooltip || '';
+    }
+
+    function addNewPinViaTable() {
+      if (state.slides.length === 0) { alert('Please upload images first!'); return; }
+      const targetSlide = state.slides[state.currentSlideIdx];
+      let maxNum = 0;
+      targetSlide.pins.forEach(p => { if (p.num > maxNum) maxNum = p.num; });
+
+      targetSlide.pins.push({
+        id: 'pin_' + Date.now() + '_' + Math.random().toString(36).substr(2, 3),
+        num: maxNum + 1,
+        xPct: 50, yPct: 50, rotation: 0,
+        fillColor: '#FFFF00', borderColor: '#FF0000', tooltip: ''
+      });
+      calculateNextNumber();
+      renderEditorPins();
+      renderPinTable();
+      renderTileGrid();
+    }
+
+    /* ---------- COPY TABLE (TSV) ---------- */
+    function tsvCell(value) {
+      let s = String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ');
+      if (s.includes('"')) s = '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+
+    function copyPinTableToClipboard() {
+      if (!state.slides || state.slides.length === 0) {
+        alert("No slides or pin data available to copy.");
+        return;
+      }
+
+      const rows = [TABLE_HEADERS.join('\t')];
+
+      state.slides.forEach((slide, idx) => {
+        const slideLabel = `Slide ${idx + 1}`;
+        const q = slide.question || newQuestion();
+        const o = Array.isArray(q.options) ? q.options : [];
+
+        rows.push([
+          slideLabel, "[Quiz]", q.text || '', (q.type || 'none').toUpperCase(), q.correct || '',
+          "Configured in Quiz Sidebar", "", "", "", "",
+          o[0] || '', o[1] || '', o[2] || '', o[3] || '', ''
+        ].map(tsvCell).join('\t'));
+
+        (slide.pins || []).forEach(pin => {
+          rows.push([
+            slideLabel, pin.num, pin.tooltip || '', "-", "-",
+            pin.borderColor || '', pin.fillColor || '', pin.xPct, pin.yPct, pin.rotation || 0,
+            "", "", "", "", pin.id
+          ].map(tsvCell).join('\t'));
+        });
+      });
+
+      const text = rows.join('\n');
+      const fallback = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
+        alert(ok ? "Copied all table rows (15 columns) to clipboard!"
+                 : "Clipboard write blocked by browser. Please select table rows manually.");
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+          .then(() => alert("Copied all table rows (15 columns) to clipboard!"))
+          .catch(fallback);
+      } else {
+        fallback();
+      }
+    }
+
+    /* ---------- MODALS ---------- */
+    function openTableModal() {
+      document.getElementById('tableModal').classList.add('active');
+      currentTableContainerId = 'modalTableHost';
+      renderPinTable();
+    }
+
+    function closeTableModal() {
+      document.getElementById('tableModal').classList.remove('active');
+      currentTableContainerId = 'sidebarTableHost';
+      renderPinTable();
+    }
+
+    function openPasteModal() {
+      document.getElementById('pasteModal').classList.add('active');
+      setTimeout(() => document.getElementById('pasteTextArea').focus(), 0);
+    }
+    function closePasteModal() { document.getElementById('pasteModal').classList.remove('active'); }
+
+    /* =====================================================
+       TSV IMPORT (shared by the Import dialog and Ctrl+V on the table)
+    ===================================================== */
+
+    // Proper TSV parser: handles Excel quoting ("..." cells, doubled quotes, line breaks inside cells)
+    function parseTSV(text) {
+      const rows = [];
+      let row = [], cell = '', inQ = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQ) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { cell += '"'; i++; }
+            else inQ = false;
+          } else cell += c;
+        } else {
+          if (c === '"' && cell === '') inQ = true;
+          else if (c === '\t') { row.push(cell); cell = ''; }
+          else if (c === '\n' || c === '\r') {
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            row.push(cell); cell = ''; rows.push(row); row = [];
+          } else cell += c;
+        }
+      }
+      if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+      return rows.map(r => r.map(c => c.trim())).filter(r => r.some(c => c !== ''));
+    }
+
+    // Returns { changed, created }
+    // Pins are matched to existing pins in this order, so edited pin numbers never create duplicates:
+    //   1) by Pin ID (column 15, written by "Copy Table")
+    //   2) rows without a usable ID: by position, if the slide has the same number of rows as unmatched pins
+    //   3) otherwise by pin number; anything still unmatched becomes a new pin
+    function importTSVText(text) {
+      const blank = v => v === undefined || v === '' || v === '-';
+      const isHex = v => /^#[0-9a-fA-F]{6}$/.test(v || '');
+      const clamp = n => Math.max(0, Math.min(100, n));
+      let changed = 0, created = 0;
+      const pinRowsBySlide = {};
+
+      // Pass 1: quiz rows are applied immediately, pin rows are collected per slide
+      parseTSV(text).forEach(cols => {
+        if (cols.length < 2) return;
+        if (cols[0].toLowerCase() === 'slide' || /^column\d*$/i.test(cols[0])) return;   // header rows
+
+        const m = cols[0].match(/\d+/);
+        if (!m) return;
+        const slideNum = parseInt(m[0], 10);
+        if (slideNum < 1 || slideNum > MAX_PLACEHOLDER_SLIDES) return;
+
+        while (state.slides.length < slideNum) {
+          state.slides.push(makePlaceholderSlide(state.slides.length + 1));
+          created++;
+        }
+        const slide = state.slides[slideNum - 1];
+
+        const kind = cols[1];
+        const kindLc = kind.toLowerCase();
+        const prevQ = slide.question || newQuestion();
+        const prevOpts = Array.isArray(prevQ.options) ? prevQ.options : ['', '', '', ''];
+
+        // A) Quiz (short format): Slide | MC/TF | Question | A | B | C | D | Correct
+        if (kindLc === 'mc' || kindLc === 'tf') {
+          const opts = [cols[3] || '', cols[4] || '', cols[5] || '', cols[6] || ''];
+          let correct = (cols[7] || '').trim();
+          if (kindLc === 'mc') {
+            const idx = opts.findIndex(o => o && o.toLowerCase() === correct.toLowerCase());
+            correct = idx >= 0 ? 'ABCD'[idx] : normalizeCorrect('mc', correct);
+          } else {
+            correct = normalizeCorrect('tf', correct);
+          }
+          slide.question = {
+            type: kindLc,
+            text: cols[2] || '',
+            options: kindLc === 'mc' ? opts : prevOpts,
+            correct
+          };
+          changed++;
+        }
+        // B) Quiz row from "Copy Table": Slide | [Quiz] | Text | TYPE | Correct | ... | OptA..D (cols 10-13)
+        else if (kindLc === '[quiz]') {
+          const type = blank(cols[3]) ? prevQ.type : cols[3].toLowerCase();
+          const safeType = ['none', 'mc', 'tf'].includes(type) ? type : prevQ.type;
+          const opts = prevOpts.slice();
+          for (let i = 0; i < 4; i++) {
+            if (cols[10 + i] !== undefined && cols[10 + i] !== '') opts[i] = cols[10 + i];
+          }
+          slide.question = {
+            type: safeType,
+            text: blank(cols[2]) ? prevQ.text : cols[2],
+            options: opts,
+            correct: normalizeCorrect(safeType, blank(cols[4]) ? prevQ.correct : cols[4])
+          };
+          changed++;
+        }
+        // C) Pin row – collected for pass 2
+        else if (!isNaN(parseInt(kind, 10))) {
+          (pinRowsBySlide[slideNum] = pinRowsBySlide[slideNum] || []).push(cols);
+        }
+      });
+
+      // Pass 2: match pin rows to existing pins
+      Object.keys(pinRowsBySlide).forEach(key => {
+        const slide = state.slides[parseInt(key, 10) - 1];
+        const rows = pinRowsBySlide[key];
+        const assigned = new Array(rows.length).fill(null);
+        const used = new Set();
+
+        // 1) by Pin ID
+        rows.forEach((cols, i) => {
+          const id = cols[14];
+          if (blank(id)) return;
+          const pin = slide.pins.find(p => p.id === id && !used.has(p.id));
+          if (pin) { assigned[i] = pin; used.add(pin.id); }
+        });
+
+        // 2) / 3) rows that still have no pin
+        const freeRows = rows.map((_, i) => i).filter(i => !assigned[i]);
+        const freePins = slide.pins.filter(p => !used.has(p.id));
+
+        if (freeRows.length && freeRows.length === freePins.length) {
+          // same count -> positional (this is what makes renumbering safe)
+          freeRows.forEach((ri, k) => { assigned[ri] = freePins[k]; used.add(freePins[k].id); });
+        } else {
+          // partial paste -> match by pin number
+          freeRows.forEach(ri => {
+            const num = parseInt(rows[ri][1], 10);
+            const pin = slide.pins.find(p => !used.has(p.id) && p.num === num);
+            if (pin) { assigned[ri] = pin; used.add(pin.id); }
+          });
+        }
+
+        // apply values; create only if there is genuinely no pin to update
+        rows.forEach((cols, i) => {
+          let pin = assigned[i];
+          if (!pin) {
+            pin = {
+              id: 'pin_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+              num: parseInt(cols[1], 10), xPct: 50, yPct: 50, rotation: 0,
+              fillColor: '#FFFF00', borderColor: '#FF0000', tooltip: ''
+            };
+            slide.pins.push(pin);
+            used.add(pin.id);
+          }
+          const num = parseInt(cols[1], 10);
+          if (!isNaN(num)) pin.num = num;
+          if (!blank(cols[2])) pin.tooltip = cols[2];
+          if (isHex(cols[5])) pin.borderColor = cols[5];
+          if (isHex(cols[6])) pin.fillColor = cols[6];
+          if (!blank(cols[7]) && !isNaN(parseFloat(cols[7]))) pin.xPct = clamp(parseFloat(cols[7]));
+          if (!blank(cols[8]) && !isNaN(parseFloat(cols[8]))) pin.yPct = clamp(parseFloat(cols[8]));
+          if (!blank(cols[9]) && !isNaN(parseInt(cols[9], 10))) pin.rotation = ((parseInt(cols[9], 10) % 360) + 360) % 360;
+          changed++;
+        });
+      });
+
+      return { changed, created };
+    }
+
+    function refreshAfterImport() {
+      if (state.currentSlideIdx >= state.slides.length) state.currentSlideIdx = Math.max(0, state.slides.length - 1);
+      renderTileGrid();
+      if (isEditorActive()) setupEditorSlide();
+      else renderPinTable();
+    }
+
+    // Import dialog button
+    function handleImportRows() {
+      const textarea = document.getElementById('pasteTextArea');
+      if (!textarea || !textarea.value.trim()) {
+        alert("Please paste your Excel TSV data into the box first.");
+        return;
+      }
+
+      const { changed, created } = importTSVText(textarea.value);
+
+      if (!changed) {
+        alert("No matching rows found. Check that the Slide column (e.g. \"Slide 2\") is present and the columns are tab-separated.");
+        return;
+      }
+
+      refreshAfterImport();
+      textarea.value = '';
+      closePasteModal();
+      alert(`Imported ${changed} row(s)` + (created ? ` — ${created} new placeholder slide(s) created.` : '.'));
+    }
+
+    // Ctrl+V directly on the data table
+    function attachGlobalPasteInterceptor() {
+      document.addEventListener('paste', (e) => {
+        const activeElem = document.activeElement;
+        if (!activeElem || !activeElem.closest || !activeElem.closest('.excel-table-wrapper')) return;
+        const clipData = e.clipboardData || window.clipboardData;
+        if (!clipData) return;
+        const text = clipData.getData('text/plain');
+        if (text && (text.includes('\t') || text.includes('\n'))) {
+          e.preventDefault();
+          const { changed, created } = importTSVText(text);
+          if (changed) {
+            refreshAfterImport();
+          } else {
+            alert("No matching rows found in the pasted data.");
+          }
+        }
+      });
+    }
+
+    /* =====================================================
+       PRESENTATION MODE WITH STRICT ATTEMPT LOCKING
+    ===================================================== */
     function setupPresentSlide() {
       const slide = state.slides[state.currentSlideIdx];
       if (!slide) return;
+      trackSwitch(state.currentSlideIdx);
 
       document.getElementById('presentSlideImg').src = slide.dataUrl;
       document.getElementById('slideCounter').textContent = `Slide ${state.currentSlideIdx + 1} / ${state.slides.length}`;
+      document.getElementById('hoverTooltip').style.display = 'none';
 
       const layer = document.getElementById('presentPinLayer');
       layer.innerHTML = '';
-      slide.pins.forEach(pin => {
-        layer.appendChild(createPinElement(pin, false));
-      });
+      slide.pins.forEach(pin => layer.appendChild(createPinElement(pin, false)));
+
+      const quizBox = document.getElementById('quizCardContainer');
+      const q = slide.question;
+
+      if (q && q.type && q.type !== 'none' && q.text && q.text.trim()) {
+        quizBox.style.display = 'flex';
+        document.getElementById('quizQuestionText').textContent = `${state.currentSlideIdx + 1}. ${q.text}`;
+
+        const grid = document.getElementById('quizOptionsGrid');
+        grid.innerHTML = '';
+
+        const submittedAnswer = learnerQuizAnswers[state.currentSlideIdx];
+
+        if (q.type === 'mc') {
+          const labels = ['A', 'B', 'C', 'D'];
+          (q.options || []).forEach((optText, optIdx) => {
+            if (!optText || !optText.trim() || optIdx > 3) return;
+            const key = labels[optIdx];
+            const btn = document.createElement('button');
+            btn.className = 'quiz-opt-btn';
+
+            // STRICT SCORM LOCKING: lock after the first click attempt
+            if (submittedAnswer !== undefined) {
+              btn.disabled = true;
+              if (key === q.correct) btn.classList.add('correct');
+              else if (key === submittedAnswer) btn.classList.add('wrong');
+            }
+
+            btn.innerHTML = `<b>${key}.</b> ${escapeHtml(optText)}`;
+            btn.onclick = () => selectQuizAnswer(state.currentSlideIdx, key);
+            grid.appendChild(btn);
+          });
+        } else if (q.type === 'tf') {
+          ['True', 'False'].forEach(val => {
+            const btn = document.createElement('button');
+            btn.className = 'quiz-opt-btn';
+
+            if (submittedAnswer !== undefined) {
+              btn.disabled = true;
+              if (val === q.correct) btn.classList.add('correct');
+              else if (val === submittedAnswer) btn.classList.add('wrong');
+            }
+
+            btn.innerHTML = `<b>${val}</b>`;
+            btn.onclick = () => selectQuizAnswer(state.currentSlideIdx, val);
+            grid.appendChild(btn);
+          });
+        }
+      } else {
+        quizBox.style.display = 'none';
+      }
+
+      calculateAndSendSCORMGrade();
+    }
+
+    function selectQuizAnswer(slideIdx, answerVal) {
+      if (learnerQuizAnswers[slideIdx] !== undefined) return;
+      learnerQuizAnswers[slideIdx] = answerVal;
+      recordInteraction(slideIdx, answerVal);
+      setupPresentSlide();
     }
 
     function nextSlide() {
@@ -777,67 +2131,222 @@
       }
     }
 
-    document.getElementById('presentSlideBox').addEventListener('click', (e) => {
-      if (e.target.closest('.pin-element')) return;
-      nextSlide();
+    /* =====================================================
+       PRINT / SAVE AS PDF  – all slides, one per page
+       Ctrl+P (or the 🖨️ buttons) builds a print layout from the slide data, so it works from
+       every view (grid, editor, presentation) and in exported packages.
+    ===================================================== */
+    let printPrepared = false;
+
+    function buildPrintArea() {
+      const area = document.getElementById('printArea');
+      if (!area) return;
+      area.innerHTML = '';
+
+      state.slides.forEach((slide, idx) => {
+        const sec = document.createElement('section');
+        sec.className = 'print-slide';
+
+        const head = document.createElement('div');
+        head.className = 'print-head';
+        head.textContent = `Slide ${idx + 1} / ${state.slides.length}`;
+        sec.appendChild(head);
+
+        const box = document.createElement('div');
+        box.className = 'print-imgbox';
+        const img = document.createElement('img');
+        img.src = slide.dataUrl;
+        img.alt = `Slide ${idx + 1}`;
+        box.appendChild(img);
+        const pins = document.createElement('div');
+        pins.className = 'print-pins';
+        (slide.pins || []).forEach(pin => pins.appendChild(createPinElement(pin, false)));
+        box.appendChild(pins);
+        sec.appendChild(box);
+
+        let hasExtra = false;
+
+        // Tooltips only show on hover on screen, so list them under the slide on paper
+        const tipPins = (slide.pins || []).filter(p => p.tooltip && p.tooltip.trim());
+        if (tipPins.length) {
+          hasExtra = true;
+          const notes = document.createElement('div');
+          notes.className = 'print-notes';
+          tipPins.slice().sort((a, b) => a.num - b.num).forEach(p => {
+            const row = document.createElement('div');
+            const n = document.createElement('span');
+            n.className = 'pn';
+            n.textContent = p.num;
+            row.appendChild(n);
+            row.appendChild(document.createTextNode(p.tooltip));
+            notes.appendChild(row);
+          });
+          sec.appendChild(notes);
+        }
+
+        // Quiz question + options (the correct answer is not revealed on paper)
+        const q = slide.question;
+        if (q && q.type && q.type !== 'none' && q.text && q.text.trim()) {
+          hasExtra = true;
+          const quiz = document.createElement('div');
+          quiz.className = 'print-quiz';
+          const qt = document.createElement('div');
+          qt.className = 'pq';
+          qt.textContent = `${idx + 1}. ${q.text}`;
+          quiz.appendChild(qt);
+
+          const opts = q.type === 'tf'
+            ? [['True', 'True'], ['False', 'False']]
+            : (q.options || []).slice(0, 4).map((t, i) => ['ABCD'[i] + '.', t]).filter(o => o[1] && o[1].trim());
+          opts.forEach(o => {
+            const row = document.createElement('div');
+            row.className = 'po';
+            row.textContent = q.type === 'tf' ? '☐ ' + o[0] : `${o[0]} ${o[1]}`;
+            quiz.appendChild(row);
+          });
+          sec.appendChild(quiz);
+        }
+
+        if (hasExtra) sec.classList.add('has-extra');
+        area.appendChild(sec);
+      });
+    }
+
+    async function printAllSlides() {
+      if (!state.slides.length) { alert('Please upload images first!'); return; }
+      buildPrintArea();
+      // make sure every image is decoded before the print preview is rendered
+      const imgs = Array.from(document.querySelectorAll('#printArea img'));
+      await Promise.all(imgs.map(i => (i.decode ? i.decode().catch(() => {}) : Promise.resolve())));
+      printPrepared = true;
+      window.print();
+    }
+
+    // Browser menu → Print (or any print not started by our button/shortcut)
+    window.addEventListener('beforeprint', () => {
+      if (printPrepared) { printPrepared = false; return; }
+      buildPrintArea();
+    });
+    window.addEventListener('afterprint', () => {
+      printPrepared = false;
+      const area = document.getElementById('printArea');
+      if (area) area.innerHTML = '';     // free memory (images are duplicated while printing)
     });
 
-    // EXPORT PRESENTATION PACKAGE (.ZIP WITH HTML AND IMAGES SUBFOLDER)
-    async function exportPresentationPackage() {
-      if (state.slides.length === 0) {
-        alert('No slides to export!');
-        return;
+    // Ctrl+P / Cmd+P
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        printAllSlides();
       }
+    });
 
+    /* =====================================================
+       EXPORT / SAVE / LOAD
+    ===================================================== */
+
+    // Build a clean copy of this page with the given slide data embedded
+    function buildPlayerHtml(slides, isExported) {
+      const clone = document.documentElement.cloneNode(true);
+
+      // Strip all dynamic content (it is rebuilt from the data on load) so the file stays small
+      ['tileGrid', 'sidebarTableHost', 'modalTableHost', 'quizOptionsGrid', 'presentPinLayer', 'pinLayer', 'printArea']
+        .forEach(id => { const el = clone.querySelector('#' + id); if (el) el.innerHTML = ''; });
+      ['editorSlideImg', 'presentSlideImg']
+        .forEach(id => { const el = clone.querySelector('#' + id); if (el) el.removeAttribute('src'); });
+      clone.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+      clone.querySelectorAll('.modal-overlay').forEach(p => p.classList.remove('active'));
+      const grid = clone.querySelector('#gridView'); if (grid) grid.classList.add('active');
+      const body = clone.querySelector('body'); if (body) body.classList.remove('no-topbar');
+      const tip = clone.querySelector('#hoverTooltip'); if (tip) tip.style.display = 'none';
+      // A SCORM package only plays the slides: it doesn't need the zip library (no external request from the LMS)
+      if (isExported) clone.querySelectorAll('script[src*="jszip"]').forEach(el => el.remove());
+
+      // "<" escaped so that tooltips / questions can never close the <script> tag
+      const dataJson = JSON.stringify({ slides: slides, isExported: !!isExported }).replace(/</g, '\\u003c');
+
+      // Function replacer: avoids "$&" / "$'" special patterns in the data being interpreted
+      const html = clone.outerHTML.replace(
+        /<script id="presentationData" type="application\/json">[\s\S]*?<\/script>/,
+        () => `<script id="presentationData" type="application/json">${dataJson}<\/script>`
+      );
+      return '<!DOCTYPE html>\n' + html;
+    }
+
+    function downloadBlob(blob, filename) {
+      const a = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+
+    // Standalone editable project file (images embedded, can be re-loaded with "Load Saved HTML")
+    function saveProjectHTML() {
+      if (state.slides.length === 0) { alert('Nothing to save yet — add some images first.'); return; }
+      const html = buildPlayerHtml(JSON.parse(JSON.stringify(state.slides)), false);
+      downloadBlob(new Blob([html], { type: 'text/html' }), `step_marker_project_${Date.now()}.html`);
+    }
+
+    // SCORM 1.2 package (.zip)
+    async function exportPresentationPackage() {
+      if (state.slides.length === 0) { alert('Nothing to export yet — add some images first.'); return; }
       if (typeof JSZip === 'undefined') {
-        alert('JSZip library is not loaded. Please check your internet connection.');
+        alert('The JSZip library could not be loaded (check your internet connection) and the package cannot be created.');
         return;
       }
 
       const zip = new JSZip();
       const imgFolder = zip.folder("images");
-
-      // Deep clone slides state to alter dataUrls to relative paths for export
       const exportedSlides = JSON.parse(JSON.stringify(state.slides));
 
       exportedSlides.forEach((slide, idx) => {
-        let dataUrl = slide.dataUrl;
-        
-        // Extract base64 image data if present
-        if (dataUrl.startsWith('data:image/')) {
-          const mimeMatch = dataUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,/);
-          const ext = mimeMatch ? mimeMatch[1] : 'png';
-          const base64Data = dataUrl.replace(/^data:image\/[a-zA-Z0-9]+;base64,/, '');
-          
+        const m = /^data:image\/([a-zA-Z0-9.+-]+);base64,(.*)$/s.exec(slide.dataUrl || '');
+        if (m) {
+          let ext = m[1].toLowerCase();
+          if (ext === 'jpeg') ext = 'jpg';
+          if (ext.startsWith('svg')) ext = 'svg';
           const fileName = `slide_${idx + 1}.${ext}`;
-          const relativePath = `images/${fileName}`;
-
-          // Add image file inside the images/ subfolder in zip
-          imgFolder.file(fileName, base64Data, { base64: true });
-
-          // Update slide reference in exported JSON to relative path
-          slide.dataUrl = relativePath;
+          imgFolder.file(fileName, m[2], { base64: true });
+          slide.dataUrl = `images/${fileName}`;
         }
+        // non-base64 data URLs (e.g. placeholder slides) stay embedded inline
       });
 
-      // Insert exported data payload into exported HTML
-      const currentHtml = document.documentElement.outerHTML;
-      const dataJson = JSON.stringify({ slides: exportedSlides, isExported: true });
+      const now = Date.now();
+      const manifestContent = `<?xml version="1.0" encoding="UTF-8"?>
+<manifest identifier="MANIFEST-${now}" version="1.0"
+          xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"
+          xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd">
+  <metadata>
+    <schema>ADL SCORM</schema>
+    <schemaversion>1.2</schemaversion>
+  </metadata>
+  <organizations default="ORG-1">
+    <organization identifier="ORG-1">
+      <title>Interactive Quiz Presentation</title>
+      <item identifier="ITEM-1" identifierref="RES-1">
+        <title>Interactive Slide Tutorial</title>
+      </item>
+    </organization>
+  </organizations>
+  <resources>
+    <resource identifier="RES-1" type="webcontent" adlcp:scormtype="sco" href="index.html">
+      <file href="index.html"/>
+    </resource>
+  </resources>
+</manifest>`;
 
-      const updatedHtml = currentHtml.replace(
-        /<script id="presentationData" type="application\/json">[\s\S]*?<\/script>/,
-        `<script id="presentationData" type="application/json">${dataJson}<\/script>`
-      );
+      zip.file("imsmanifest.xml", manifestContent);
+      zip.file("index.html", buildPlayerHtml(exportedSlides, true));
 
-      // Add index.html to zip root
-      zip.file("index.html", updatedHtml);
-
-      // Generate and download ZIP file
       const content = await zip.generateAsync({ type: "blob" });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(content);
-      a.download = `tutorial_package_${Date.now()}.zip`;
-      a.click();
+      downloadBlob(content, `scorm_quiz_package_${now}.zip`);
     }
 
     function loadPresentationHTML(e) {
@@ -846,9 +2355,7 @@
 
       const reader = new FileReader();
       reader.onload = (evt) => {
-        const content = evt.target.result;
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(content, 'text/html');
+        const doc = new DOMParser().parseFromString(evt.target.result, 'text/html');
         const dataElem = doc.getElementById('presentationData');
 
         if (dataElem && dataElem.textContent.trim()) {
@@ -857,20 +2364,102 @@
             if (loaded.slides) {
               state.slides = loaded.slides;
               state.currentSlideIdx = 0;
+              learnerQuizAnswers = {};
               renderTileGrid();
               switchView('grid');
-              alert('Presentation loaded successfully!');
+              const linked = state.slides.some(s => s.dataUrl && !s.dataUrl.startsWith('data:'));
+              alert('Presentation loaded successfully!' +
+                    (linked ? '\n\nNote: this file references external image files (images/...). If they appear broken, load a project saved with "Save Project (.html)" instead.' : ''));
             }
-          } catch(err) {
-            alert('Could not parse presentation data from HTML.');
+          } catch (err) {
+            alert('Could not parse presentation data.');
           }
         } else {
-          alert('No presentation data found in selected HTML file.');
+          alert('No presentation data found in this file.');
         }
       };
       reader.readAsText(file);
       e.target.value = '';
     }
+
+    /* =====================================================
+       GLOBAL KEYBOARD / WHEEL LISTENERS
+    ===================================================== */
+    document.addEventListener('keydown', (e) => {
+      const ae = document.activeElement;
+      const activeTag = ae ? ae.tagName.toLowerCase() : '';
+      const isEditing = ['input', 'textarea', 'select'].includes(activeTag) || (ae && ae.isContentEditable);
+      if (isEditing) return;
+      // The data table has its own keyboard handling (arrows move the selected cell)
+      if (ae && ae.closest && ae.closest('.excel-table-wrapper')) return;
+
+      const editorActive = isEditorActive();
+
+      // Deselect pin on Escape
+      if ((e.key === 'Escape' || e.key === 'Esc') && state.selectedPinId) {
+        e.preventDefault();
+        deselectPin();
+        return;
+      }
+
+      // Delete selected pin
+      if (e.key === 'Delete' && editorActive && state.selectedPinId) {
+        e.preventDefault();
+        deleteSelectedPin();
+        return;
+      }
+
+      // Slide navigation
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (editorActive) prevEditorSlide(); else prevSlide();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (editorActive) nextEditorSlide(); else nextSlide();
+      }
+    });
+
+    // MOUSE WHEEL OVER THE SLIDE IMAGE:
+    //   - pin selected     -> rotate that pin
+    //   - no pin selected  -> previous / next slide (same as the ◀ ▶ arrow keys)
+    let lastWheelNavTime = 0;
+    const WHEEL_NAV_COOLDOWN_MS = 250;   // one slide per "notch"; also tames trackpad inertia
+
+    document.addEventListener('wheel', (e) => {
+      if (!isEditorActive()) return;
+
+      const container = document.getElementById('imageContainer');
+      if (!container || !container.contains(e.target)) return;   // pointer must be over the slide image
+
+      // No pin selected: wheel navigates between slides
+      if (!state.selectedPinId) {
+        e.preventDefault();
+        if (Math.abs(e.deltaY) < 1) return;
+        const now = Date.now();
+        if (now - lastWheelNavTime < WHEEL_NAV_COOLDOWN_MS) return;
+        lastWheelNavTime = now;
+        if (e.deltaY > 0) nextEditorSlide(); else prevEditorSlide();
+        return;
+      }
+
+      const layer = document.getElementById('pinLayer');
+      if (layer && layer.contains(e.target)) {
+        e.preventDefault();
+
+        const slide = state.slides[state.currentSlideIdx];
+        if (!slide) return;
+        const pin = slide.pins.find(p => p.id === state.selectedPinId);
+        if (!pin) return;
+
+        const ROTATION_STEP = 15;
+        const angleDelta = e.deltaY > 0 ? ROTATION_STEP : -ROTATION_STEP;
+        pin.rotation = (((pin.rotation || 0) + angleDelta) % 360 + 360) % 360;
+
+        document.getElementById('inputAngle').value = pin.rotation;
+        renderEditorPins();
+        renderPinTable();
+      }
+    }, { passive: false });
   </script>
 </body>
 </html>
